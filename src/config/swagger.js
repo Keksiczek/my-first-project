@@ -20,6 +20,7 @@ const options = {
       { name: 'Inventory', description: 'Zásoby na skladě' },
       { name: 'Movements', description: 'Historie pohybů' },
       { name: 'Import', description: 'Import dat z CSV' },
+      { name: 'Excel Import', description: 'Import objednávek a soupisů z Excelu' },
       { name: 'Health', description: 'Health-check endpoint' },
       { name: 'Home', description: 'Dashboard a přehled systému' },
       { name: 'Warehouses', description: 'Správa skladů' },

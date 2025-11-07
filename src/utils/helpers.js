@@ -26,6 +26,19 @@ function generateItemBarcode (index) {
 }
 
 /**
+ * Generuje unikátní čárový kód bez nutnosti znát index položky
+ * @returns {string}
+ */
+function generateBarcode () {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const random = Math.random().toString(36).slice(-4).toUpperCase();
+  return `MAT-${yy}${mm}${dd}-${random}`;
+}
+
+/**
  * Vypočítá status objednávky na základě položek
  * @param {Array<{qtyReceived:number,status:string}>} items
  * @returns {string}
@@ -55,5 +68,6 @@ function calculateOrderStatus (items) {
 module.exports = {
   generateOrderQR,
   generateItemBarcode,
+  generateBarcode,
   calculateOrderStatus
 };

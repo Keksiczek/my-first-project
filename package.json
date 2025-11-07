@@ -16,10 +16,12 @@
     "express-rate-limit": "^7.0.0",
     "express-validator": "^7.0.1",
     "helmet": "^7.0.0",
+    "multer": "^1.4.5-lts.1",
     "mysql2": "^3.11.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
-    "winston": "^3.13.0"
+    "winston": "^3.13.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "eslint": "^8.57.0",

@@ -96,6 +96,20 @@ exports.consumeMaterial = async (req, res, next) => {
   try {
     await conn.beginTransaction();
 
+    // ZMĚNA: kontrola, zda byl materiál alespoň jednou přijat
+    const [itemCheck] = await conn.query(
+      'SELECT qtyReceived FROM OrderItems WHERE barcode = ?',
+      [barcode]
+    );
+
+    if (itemCheck.length === 0 || itemCheck[0].qtyReceived === 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Materiál s tímto čárovým kódem nebyl ještě přijat do skladu'
+      });
+    }
+
     const [inventoryRows] = await conn.query(
       `SELECT * FROM Inventory
        WHERE barcode = ? AND warehouseId = ? AND position = ?
@@ -159,14 +173,32 @@ exports.consumeMaterial = async (req, res, next) => {
   }
 };
 
+// ZMĚNA: přidána možnost filtrovat pohyby podle typu
 exports.getMovementsByBarcode = async (req, res, next) => {
   const { barcode } = req.params;
-  const { page, limit } = req.query;
+  const { page, limit, movementType } = req.query;
   const { limit: safeLimit, offset, page: safePage } = getPaginationParams(page, limit);
 
   try {
-    const countSql = 'SELECT COUNT(*) AS total FROM Movements WHERE barcode = ?';
-    const [countRows] = await pool.query(countSql, [barcode]);
+    if (movementType && !Object.values(MOVEMENT_TYPE).includes(movementType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Neplatný typ pohybu'
+      });
+    }
+
+    const conditions = ['barcode = ?'];
+    const params = [barcode];
+
+    if (movementType) {
+      conditions.push('movementType = ?');
+      params.push(movementType);
+    }
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+    const countSql = `SELECT COUNT(*) AS total FROM Movements ${whereClause}`;
+    const [countRows] = await pool.query(countSql, params);
     const total = countRows[0]?.total || 0;
 
     const dataSql = `
@@ -175,12 +207,12 @@ exports.getMovementsByBarcode = async (req, res, next) => {
              toWarehouse, toPosition,
              quantity, notes, dateCreated
       FROM Movements
-      WHERE barcode = ?
+      ${whereClause}
       ORDER BY dateCreated DESC
       LIMIT ? OFFSET ?
     `;
 
-    const [rows] = await pool.query(dataSql, [barcode, safeLimit, offset]);
+    const [rows] = await pool.query(dataSql, [...params, safeLimit, offset]);
 
     const response = buildPaginatedResponse(rows, total, safePage, safeLimit);
     response.movements = rows;

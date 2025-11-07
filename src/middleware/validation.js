@@ -52,9 +52,16 @@ const validateCreateOrder = [
 const validateReceive = [
   body('barcode')
     .notEmpty().withMessage('Čárový kód je povinný')
+    .matches(/^MAT-\d{6}-\d{3}$/).withMessage('Čárový kód musí být ve formátu MAT-YYMMDD-XXX')
     .isLength({ max: 50 }).withMessage('Čárový kód může mít maximálně 50 znaků'),
   body('quantityReceived')
     .isInt({ min: 1 }).withMessage('Přijaté množství musí být kladné celé číslo'),
+  body('warehouseId')
+    .notEmpty().withMessage('ID skladu je povinné')
+    .isLength({ max: 50 }).withMessage('ID skladu může mít maximálně 50 znaků'),
+  body('position')
+    .notEmpty().withMessage('Pozice je povinná')
+    .isLength({ max: 50 }).withMessage('Pozice může mít maximálně 50 znaků'),
   body('notes')
     .optional()
     .isString().withMessage('Poznámka musí být text'),
@@ -63,7 +70,8 @@ const validateReceive = [
 
 const validateMove = [
   body('barcode')
-    .notEmpty().withMessage('Čárový kód je povinný'),
+    .notEmpty().withMessage('Čárový kód je povinný')
+    .matches(/^MAT-\d{6}-\d{3}$/).withMessage('Čárový kód musí být ve formátu MAT-YYMMDD-XXX'),
   body('warehouseId')
     .notEmpty().withMessage('ID skladu je povinné')
     .isLength({ max: 50 }).withMessage('ID skladu může mít maximálně 50 znaků'),
@@ -80,7 +88,8 @@ const validateMove = [
 
 const validateConsume = [
   body('barcode')
-    .notEmpty().withMessage('Čárový kód je povinný'),
+    .notEmpty().withMessage('Čárový kód je povinný')
+    .matches(/^MAT-\d{6}-\d{3}$/).withMessage('Čárový kód musí být ve formátu MAT-YYMMDD-XXX'),
   body('warehouseId')
     .notEmpty().withMessage('ID skladu je povinné'),
   body('position')
@@ -90,6 +99,16 @@ const validateConsume = [
   body('notes')
     .optional()
     .isString().withMessage('Poznámka musí být text'),
+  handleValidationErrors
+];
+
+const validateUpdateOrder = [
+  body('supplier')
+    .optional()
+    .isLength({ max: 255 }).withMessage('Dodavatel může mít maximálně 255 znaků'),
+  body('notes')
+    .optional()
+    .isLength({ max: 1000 }).withMessage('Poznámka může mít maximálně 1000 znaků'),
   handleValidationErrors
 ];
 
@@ -131,6 +150,7 @@ module.exports = {
   validateReceive,
   validateMove,
   validateConsume,
+  validateUpdateOrder,
   validateCsvImport,
   validateGenerateBarcodes,
   validateOrderId,

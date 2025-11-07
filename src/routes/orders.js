@@ -1,12 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
-const importController = require('../controllers/importController');
 const {
   validateCreateOrder,
   validateOrderId,
   validatePagination,
-  validateCsvImport,
+  validateUpdateOrder,
   validateGenerateBarcodes
 } = require('../middleware/validation');
 
@@ -127,6 +126,61 @@ router.get('/:orderId', validateOrderId, orderController.getOrderById);
 
 /**
  * @swagger
+ * /api/orders/{orderId}:
+ *   put:
+ *     summary: Aktualizace objednávky
+ *     tags: [Orders]
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               supplier:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Objednávka aktualizována
+ *       400:
+ *         description: Není co aktualizovat
+ *       404:
+ *         description: Objednávka nenalezena
+ */
+router.put('/:orderId', validateOrderId, validateUpdateOrder, orderController.updateOrder);
+
+/**
+ * @swagger
+ * /api/orders/{orderId}:
+ *   delete:
+ *     summary: Smazání objednávky
+ *     tags: [Orders]
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Objednávka smazána
+ *       400:
+ *         description: Objednávka má již přijatý materiál
+ *       404:
+ *         description: Objednávka nenalezena
+ */
+router.delete('/:orderId', validateOrderId, orderController.deleteOrder);
+
+/**
+ * @swagger
  * /api/orders/generate-barcodes:
  *   post:
  *     summary: Seznam čárových kódů pro tisk
@@ -147,34 +201,5 @@ router.get('/:orderId', validateOrderId, orderController.getOrderById);
  *         description: Objednávka nemá položky
  */
 router.post('/generate-barcodes', validateGenerateBarcodes, orderController.generateBarcodes);
-
-/**
- * @swagger
- * /api/import/csv:
- *   post:
- *     summary: Import objednávky z CSV
- *     tags: [Import]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [sapNumber, supplier, csvData]
- *             properties:
- *               sapNumber:
- *                 type: string
- *               supplier:
- *                 type: string
- *               csvData:
- *                 type: string
- *                 description: CSV data jako text
- *     responses:
- *       201:
- *         description: Objednávka vytvořena
- *       400:
- *         description: Chyba při importu
- */
-router.post('/import/csv', validateCsvImport, importController.importCsv);
 
 module.exports = router;

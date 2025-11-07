@@ -2,8 +2,9 @@ const pool = require('../config/db');
 const { recalcOrderStatus } = require('./orderController');
 const { ITEM_STATUS, MOVEMENT_TYPE } = require('../constants/statuses');
 
+// ZMĚNA: příjem nyní vyžaduje údaje o skladě a automaticky aktualizuje inventář
 exports.receiveFull = async (req, res, next) => {
-  const { barcode, quantityReceived, notes } = req.body;
+  const { barcode, quantityReceived, notes, warehouseId, position } = req.body;
   const conn = await pool.getConnection();
 
   try {
@@ -38,11 +39,56 @@ exports.receiveFull = async (req, res, next) => {
       [newQty, status, item.itemId]
     );
 
+    const [inventoryRows] = await conn.query(
+      `SELECT * FROM Inventory
+       WHERE barcode = ? AND warehouseId = ? AND position = ?
+       FOR UPDATE`,
+      [barcode, warehouseId, position]
+    );
+
+    let inventoryRecord;
+
+    if (inventoryRows.length > 0) {
+      const currentInventory = inventoryRows[0];
+      const updatedQty = currentInventory.qtyAvailable + quantityReceived;
+
+      await conn.query(
+        `UPDATE Inventory
+         SET qtyAvailable = ?, dateUpdated = NOW()
+         WHERE inventoryId = ?`,
+        [updatedQty, currentInventory.inventoryId]
+      );
+
+      inventoryRecord = { ...currentInventory, qtyAvailable: updatedQty };
+    } else {
+      const [insertResult] = await conn.query(
+        `INSERT INTO Inventory
+         (barcode, warehouseId, position, qtyAvailable)
+         VALUES (?, ?, ?, ?)`,
+        [barcode, warehouseId, position, quantityReceived]
+      );
+
+      inventoryRecord = {
+        inventoryId: insertResult.insertId,
+        barcode,
+        warehouseId,
+        position,
+        qtyAvailable: quantityReceived
+      };
+    }
+
     await conn.query(
       `INSERT INTO Movements
-       (barcode, movementType, quantity, notes)
-       VALUES (?, ?, ?, ?)`,
-      [barcode, MOVEMENT_TYPE.RECEIVE, quantityReceived, notes || null]
+       (barcode, movementType, toWarehouse, toPosition, quantity, notes)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        barcode,
+        MOVEMENT_TYPE.RECEIVE,
+        warehouseId,
+        position,
+        quantityReceived,
+        notes || null
+      ]
     );
 
     await recalcOrderStatus(conn, item.orderId);
@@ -57,6 +103,12 @@ exports.receiveFull = async (req, res, next) => {
         itemName: item.itemName,
         qtyReceived: newQty,
         status
+      },
+      inventory: {
+        barcode: inventoryRecord.barcode,
+        warehouseId: inventoryRecord.warehouseId,
+        position: inventoryRecord.position,
+        qtyAvailable: inventoryRecord.qtyAvailable
       }
     });
   } catch (error) {
@@ -67,8 +119,9 @@ exports.receiveFull = async (req, res, next) => {
   }
 };
 
+// ZMĚNA: částečný příjem rovněž aktualizuje inventář
 exports.receivePartial = async (req, res, next) => {
-  const { barcode, quantityReceived, notes } = req.body;
+  const { barcode, quantityReceived, notes, warehouseId, position } = req.body;
   const conn = await pool.getConnection();
 
   try {
@@ -104,11 +157,56 @@ exports.receivePartial = async (req, res, next) => {
       [newQty, status, item.itemId]
     );
 
+    const [inventoryRows] = await conn.query(
+      `SELECT * FROM Inventory
+       WHERE barcode = ? AND warehouseId = ? AND position = ?
+       FOR UPDATE`,
+      [barcode, warehouseId, position]
+    );
+
+    let inventoryRecord;
+
+    if (inventoryRows.length > 0) {
+      const currentInventory = inventoryRows[0];
+      const updatedQty = currentInventory.qtyAvailable + quantityReceived;
+
+      await conn.query(
+        `UPDATE Inventory
+         SET qtyAvailable = ?, dateUpdated = NOW()
+         WHERE inventoryId = ?`,
+        [updatedQty, currentInventory.inventoryId]
+      );
+
+      inventoryRecord = { ...currentInventory, qtyAvailable: updatedQty };
+    } else {
+      const [insertResult] = await conn.query(
+        `INSERT INTO Inventory
+         (barcode, warehouseId, position, qtyAvailable)
+         VALUES (?, ?, ?, ?)`,
+        [barcode, warehouseId, position, quantityReceived]
+      );
+
+      inventoryRecord = {
+        inventoryId: insertResult.insertId,
+        barcode,
+        warehouseId,
+        position,
+        qtyAvailable: quantityReceived
+      };
+    }
+
     await conn.query(
       `INSERT INTO Movements
-       (barcode, movementType, quantity, notes)
-       VALUES (?, ?, ?, ?)`,
-      [barcode, MOVEMENT_TYPE.RECEIVE, quantityReceived, notes || null]
+       (barcode, movementType, toWarehouse, toPosition, quantity, notes)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        barcode,
+        MOVEMENT_TYPE.RECEIVE,
+        warehouseId,
+        position,
+        quantityReceived,
+        notes || null
+      ]
     );
 
     await recalcOrderStatus(conn, item.orderId);
@@ -124,6 +222,12 @@ exports.receivePartial = async (req, res, next) => {
         qtyReceived: newQty,
         qtyRemaining,
         status
+      },
+      inventory: {
+        barcode: inventoryRecord.barcode,
+        warehouseId: inventoryRecord.warehouseId,
+        position: inventoryRecord.position,
+        qtyAvailable: inventoryRecord.qtyAvailable
       }
     });
   } catch (error) {

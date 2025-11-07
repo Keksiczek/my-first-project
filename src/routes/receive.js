@@ -15,12 +15,16 @@ const { validateReceive } = require('../middleware/validation');
  *         application/json:
  *           schema:
  *             type: object
- *             required: [barcode, quantityReceived]
+ *             required: [barcode, quantityReceived, warehouseId, position]
  *             properties:
  *               barcode:
  *                 type: string
  *               quantityReceived:
  *                 type: integer
+ *               warehouseId:
+ *                 type: string
+ *               position:
+ *                 type: string
  *               notes:
  *                 type: string
  *     responses:
@@ -43,12 +47,16 @@ router.post('/', validateReceive, receiveController.receiveFull);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [barcode, quantityReceived]
+ *             required: [barcode, quantityReceived, warehouseId, position]
  *             properties:
  *               barcode:
  *                 type: string
  *               quantityReceived:
  *                 type: integer
+ *               warehouseId:
+ *                 type: string
+ *               position:
+ *                 type: string
  *               notes:
  *                 type: string
  *     responses:

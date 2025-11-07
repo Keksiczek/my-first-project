@@ -23,10 +23,16 @@ const { validatePagination } = require('../middleware/validation');
  *         name: limit
  *         schema:
  *           type: integer
+ *       - in: query
+ *         name: movementType
+ *         schema:
+ *           type: string
+ *           enum: [receive, move, consume]
+ *         description: Filtrování dle typu pohybu
  *     responses:
  *       200:
  *         description: Paginovaný seznam pohybů
- */
+*/
 router.get('/:barcode', validatePagination, movementController.getMovementsByBarcode);
 
 module.exports = router;

@@ -63,6 +63,21 @@ exports.createOrder = async (req, res, next) => {
   try {
     await conn.beginTransaction();
 
+    // ZMĚNA: kontrola duplicitního SAP čísla ještě před vytvořením objednávky
+    const [existingOrder] = await conn.query(
+      'SELECT orderId FROM Orders WHERE sapNumber = ?',
+      [sapNumber]
+    );
+
+    if (existingOrder.length > 0) {
+      await conn.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'Objednávka s tímto SAP číslem již existuje',
+        existingOrderId: existingOrder[0].orderId
+      });
+    }
+
     const orderQR = generateOrderQR(sapNumber);
     const [orderResult] = await conn.query(
       `INSERT INTO Orders (sapNumber, orderQR, supplier, notes)
@@ -255,6 +270,129 @@ exports.generateBarcodes = async (req, res, next) => {
     });
   } catch (error) {
     return next(error);
+  }
+};
+
+// ZMĚNA: možnost aktualizace dodavatele a poznámek u objednávky
+exports.updateOrder = async (req, res, next) => {
+  const { orderId } = req.params;
+  const { supplier, notes } = req.body;
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const [orderRows] = await conn.query(
+      'SELECT orderId FROM Orders WHERE orderId = ?',
+      [orderId]
+    );
+
+    if (orderRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Objednávka nenalezena'
+      });
+    }
+
+    const updates = [];
+    const params = [];
+
+    if (typeof supplier !== 'undefined') {
+      updates.push('supplier = ?');
+      params.push(supplier);
+    }
+
+    if (typeof notes !== 'undefined') {
+      updates.push('notes = ?');
+      params.push(notes === '' ? null : notes);
+    }
+
+    if (updates.length === 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Žádná data k aktualizaci'
+      });
+    }
+
+    params.push(orderId);
+
+    await conn.query(
+      `UPDATE Orders
+       SET ${updates.join(', ')}
+       WHERE orderId = ?`,
+      params
+    );
+
+    const [updatedOrder] = await conn.query(
+      'SELECT * FROM Orders WHERE orderId = ?',
+      [orderId]
+    );
+
+    await conn.commit();
+
+    return res.json({
+      success: true,
+      message: 'Objednávka aktualizována',
+      data: updatedOrder[0]
+    });
+  } catch (error) {
+    await conn.rollback();
+    return next(error);
+  } finally {
+    conn.release();
+  }
+};
+
+// ZMĚNA: mazání objednávky, pokud nebyl přijat žádný materiál
+exports.deleteOrder = async (req, res, next) => {
+  const { orderId } = req.params;
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const [orderRows] = await conn.query(
+      'SELECT orderId FROM Orders WHERE orderId = ?',
+      [orderId]
+    );
+
+    if (orderRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Objednávka nenalezena'
+      });
+    }
+
+    const [itemsCheck] = await conn.query(
+      'SELECT COUNT(*) AS count FROM OrderItems WHERE orderId = ? AND qtyReceived > 0',
+      [orderId]
+    );
+
+    if (itemsCheck[0].count > 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Nelze smazat objednávku s již přijatým materiálem'
+      });
+    }
+
+    await conn.query('DELETE FROM OrderItems WHERE orderId = ?', [orderId]);
+    await conn.query('DELETE FROM Orders WHERE orderId = ?', [orderId]);
+
+    await conn.commit();
+
+    return res.json({
+      success: true,
+      message: 'Objednávka úspěšně smazána'
+    });
+  } catch (error) {
+    await conn.rollback();
+    return next(error);
+  } finally {
+    conn.release();
   }
 };
 

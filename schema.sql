@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS Orders (
   orderQR      VARCHAR(50) NOT NULL UNIQUE,
   supplier     VARCHAR(255) NOT NULL,
   dateCreated  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  status       VARCHAR(50) NOT NULL DEFAULT 'Objednáno',
+  status       VARCHAR(50) NOT NULL DEFAULT 'pending',
   notes        TEXT NULL
 ) ENGINE=InnoDB;
 
@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS Inventory (
   CONSTRAINT fk_inventory_barcode
     FOREIGN KEY (barcode) REFERENCES OrderItems(barcode)
     ON DELETE CASCADE,
+  CONSTRAINT uk_inventory_location UNIQUE (barcode, warehouseId, position),
   INDEX idx_inventory_barcode (barcode),
   INDEX idx_inventory_location (warehouseId, position)
 ) ENGINE=InnoDB;
@@ -74,7 +75,7 @@ CREATE TABLE IF NOT EXISTS Movements (
 
 -- Vzorová objednávka
 INSERT INTO Orders (sapNumber, orderQR, supplier, status, notes)
-VALUES ('4500123456', 'ORD-4500123456-251107', 'Kovar s.r.o.', 'Objednáno', '');
+VALUES ('4500123456', 'ORD-4500123456-251107', 'Kovar s.r.o.', 'pending', '');
 
 SET @orderId := LAST_INSERT_ID();
 
@@ -87,7 +88,8 @@ INSERT INTO OrderItems (
 
 -- Vzorový záznam ve skladu
 INSERT INTO Inventory (barcode, warehouseId, position, qtyAvailable)
-VALUES ('MAT-251107-001', 'Sklad-A', 'B2', 10);
+VALUES ('MAT-251107-001', 'Sklad-A', 'B2', 10)
+ON DUPLICATE KEY UPDATE qtyAvailable = VALUES(qtyAvailable);
 
 -- Vzorový pohyb
 INSERT INTO Movements (barcode, movementType, toWarehouse, toPosition, quantity, notes)

@@ -1,28 +1,21 @@
 const pool = require('../config/db');
 const { recalcOrderStatus } = require('./orderController');
+const { ITEM_STATUS, MOVEMENT_TYPE } = require('../constants/statuses');
 
 exports.receiveFull = async (req, res, next) => {
   const { barcode, quantityReceived, notes } = req.body;
-
-  if (!barcode || quantityReceived == null) {
-    return res.status(400).json({
-      success: false,
-      message: 'barcode a quantityReceived jsou povinné'
-    });
-  }
-
   const conn = await pool.getConnection();
+
   try {
     await conn.beginTransaction();
 
     const [rows] = await conn.query(
-      `SELECT * FROM OrderItems WHERE barcode = ?`,
+      'SELECT * FROM OrderItems WHERE barcode = ? FOR UPDATE',
       [barcode]
     );
 
     if (rows.length === 0) {
       await conn.rollback();
-      conn.release();
       return res.status(404).json({
         success: false,
         message: 'Položka nenalezena'
@@ -31,9 +24,12 @@ exports.receiveFull = async (req, res, next) => {
 
     const item = rows[0];
     const newQty = quantityReceived;
-
     const status =
-      newQty >= item.quantity ? 'complete' : newQty > 0 ? 'partial' : 'pending';
+      newQty >= item.quantity
+        ? ITEM_STATUS.COMPLETE
+        : newQty > 0
+          ? ITEM_STATUS.PARTIAL
+          : ITEM_STATUS.PENDING;
 
     await conn.query(
       `UPDATE OrderItems
@@ -45,8 +41,8 @@ exports.receiveFull = async (req, res, next) => {
     await conn.query(
       `INSERT INTO Movements
        (barcode, movementType, quantity, notes)
-       VALUES (?, 'receive', ?, ?)`,
-      [barcode, quantityReceived, notes || null]
+       VALUES (?, ?, ?, ?)`,
+      [barcode, MOVEMENT_TYPE.RECEIVE, quantityReceived, notes || null]
     );
 
     await recalcOrderStatus(conn, item.orderId);
@@ -63,9 +59,9 @@ exports.receiveFull = async (req, res, next) => {
         status
       }
     });
-  } catch (err) {
+  } catch (error) {
     await conn.rollback();
-    next(err);
+    next(error);
   } finally {
     conn.release();
   }
@@ -73,26 +69,18 @@ exports.receiveFull = async (req, res, next) => {
 
 exports.receivePartial = async (req, res, next) => {
   const { barcode, quantityReceived, notes } = req.body;
-
-  if (!barcode || quantityReceived == null) {
-    return res.status(400).json({
-      success: false,
-      message: 'barcode a quantityReceived jsou povinné'
-    });
-  }
-
   const conn = await pool.getConnection();
+
   try {
     await conn.beginTransaction();
 
     const [rows] = await conn.query(
-      `SELECT * FROM OrderItems WHERE barcode = ?`,
+      'SELECT * FROM OrderItems WHERE barcode = ? FOR UPDATE',
       [barcode]
     );
 
     if (rows.length === 0) {
       await conn.rollback();
-      conn.release();
       return res.status(404).json({
         success: false,
         message: 'Položka nenalezena'
@@ -101,10 +89,13 @@ exports.receivePartial = async (req, res, next) => {
 
     const item = rows[0];
     const newQty = item.qtyReceived + quantityReceived;
-    const qtyRemaining = item.quantity - newQty;
-
+    const qtyRemaining = Math.max(item.quantity - newQty, 0);
     const status =
-      newQty >= item.quantity ? 'complete' : newQty > 0 ? 'partial' : 'pending';
+      newQty >= item.quantity
+        ? ITEM_STATUS.COMPLETE
+        : newQty > 0
+          ? ITEM_STATUS.PARTIAL
+          : ITEM_STATUS.PENDING;
 
     await conn.query(
       `UPDATE OrderItems
@@ -116,8 +107,8 @@ exports.receivePartial = async (req, res, next) => {
     await conn.query(
       `INSERT INTO Movements
        (barcode, movementType, quantity, notes)
-       VALUES (?, 'receive', ?, ?)`,
-      [barcode, quantityReceived, notes || null]
+       VALUES (?, ?, ?, ?)`,
+      [barcode, MOVEMENT_TYPE.RECEIVE, quantityReceived, notes || null]
     );
 
     await recalcOrderStatus(conn, item.orderId);
@@ -131,13 +122,13 @@ exports.receivePartial = async (req, res, next) => {
         barcode: item.barcode,
         itemName: item.itemName,
         qtyReceived: newQty,
-        qtyRemaining: qtyRemaining > 0 ? qtyRemaining : 0,
+        qtyRemaining,
         status
       }
     });
-  } catch (err) {
+  } catch (error) {
     await conn.rollback();
-    next(err);
+    next(error);
   } finally {
     conn.release();
   }

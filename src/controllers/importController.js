@@ -1,30 +1,34 @@
-function parseCsv(csvData) {
-  const lines = csvData.split(/\r?\n/).filter((l) => l.trim() !== '');
-  if (lines.length < 2) return [];
+const { parse } = require('csv-parse/sync');
 
-  const header = lines[0].split(',').map((h) => h.trim());
-  const rows = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(',').map((c) => c.trim());
-    const row = {};
-    header.forEach((h, idx) => {
-      row[h] = cols[idx];
+function parseCsv (csvData) {
+  try {
+    const records = parse(csvData, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      bom: true,
+      delimiter: [',', ';', '\t'],
+      relax_quotes: true,
+      relax_column_count: true
     });
-    rows.push(row);
+
+    const requiredColumns = ['itemName', 'quantity', 'dimension', 'material', 'position'];
+    if (records.length > 0) {
+      const firstRow = records[0];
+      const missing = requiredColumns.filter((col) => !(col in firstRow));
+      if (missing.length > 0) {
+        throw new Error(`CSV chybí sloupce: ${missing.join(', ')}`);
+      }
+    }
+
+    return records;
+  } catch (error) {
+    throw new Error(`Chyba při parsování CSV: ${error.message}`);
   }
-  return rows;
 }
 
 exports.importCsv = async (req, res, next) => {
   const { sapNumber, supplier, csvData } = req.body;
-
-  if (!sapNumber || !supplier || !csvData) {
-    return res.status(400).json({
-      success: false,
-      message: 'sapNumber, supplier a csvData jsou povinné'
-    });
-  }
 
   try {
     const parsed = parseCsv(csvData);
@@ -36,17 +40,30 @@ exports.importCsv = async (req, res, next) => {
       });
     }
 
-    const items = parsed.map((r) => ({
-      itemName: r.itemName,
-      quantity: Number(r.quantity) || 0,
-      dimension: r.dimension,
-      material: r.material,
-      position: r.position
-    }));
+    const items = parsed.map((row, index) => {
+      const quantity = parseInt(row.quantity, 10);
+      if (Number.isNaN(quantity) || quantity <= 0) {
+        throw new Error(`Řádek ${index + 2}: Neplatné množství "${row.quantity}"`);
+      }
+      if (!row.itemName || row.itemName.trim() === '') {
+        throw new Error(`Řádek ${index + 2}: Chybí název položky`);
+      }
+
+      return {
+        itemName: row.itemName.trim(),
+        quantity,
+        dimension: row.dimension ? row.dimension.trim() : null,
+        material: row.material ? row.material.trim() : null,
+        position: row.position ? row.position.trim() : null
+      };
+    });
 
     req.body.items = items;
     return require('./orderController').createOrder(req, res, next);
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
   }
 };

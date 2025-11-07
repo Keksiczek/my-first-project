@@ -1,88 +1,94 @@
 const pool = require('../config/db');
+const { ITEM_STATUS, ORDER_STATUS } = require('../constants/statuses');
+const { generateOrderQR, generateItemBarcode, calculateOrderStatus } = require('../utils/helpers');
+const { getPaginationParams, buildPaginatedResponse } = require('../utils/pagination');
 
-function generateOrderQR(sapNumber) {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  return `ORD-${sapNumber}-${yy}${mm}${dd}`;
+async function generateUniqueBarcode (conn, index) {
+  let attempt = 0;
+  let barcode;
+  let exists = true;
+
+  while (exists && attempt < 1000) {
+    barcode = generateItemBarcode(index + attempt);
+    const [rows] = await conn.query(
+      'SELECT itemId FROM OrderItems WHERE barcode = ?',
+      [barcode]
+    );
+    exists = rows.length > 0;
+    if (exists) {
+      attempt += 1;
+    }
+  }
+
+  if (exists) {
+    throw new Error('Nepodařilo se vygenerovat unikátní čárový kód');
+  }
+
+  return barcode;
 }
 
-function generateItemBarcode(index) {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const idx = String(index + 1).padStart(3, '0');
-  return `MAT-${yy}${mm}${dd}-${idx}`;
-}
-
-async function recalcOrderStatus(conn, orderId) {
+async function recalcOrderStatus (conn, orderId) {
   const [rows] = await conn.query(
-    `SELECT quantity, qtyReceived FROM OrderItems WHERE orderId = ?`,
+    'SELECT qtyReceived, status FROM OrderItems WHERE orderId = ?',
     [orderId]
   );
 
-  if (rows.length === 0) return;
-
-  let allZero = true;
-  let allComplete = true;
-
-  for (const r of rows) {
-    if (r.qtyReceived > 0) allZero = false;
-    if (r.qtyReceived < r.quantity) allComplete = false;
+  if (rows.length === 0) {
+    return;
   }
 
-  let status = 'Objednáno';
-  if (!allZero && !allComplete) status = 'Částečně přijato';
-  if (allComplete) status = 'Kompletně přijato';
+  const newStatus = calculateOrderStatus(rows);
+  const statusMap = {
+    pending: ORDER_STATUS.PENDING,
+    partial: ORDER_STATUS.PARTIAL,
+    complete: ORDER_STATUS.COMPLETE
+  };
 
   await conn.query(
-    `UPDATE Orders SET status = ? WHERE orderId = ?`,
-    [status, orderId]
+    'UPDATE Orders SET status = ? WHERE orderId = ?',
+    [statusMap[newStatus] || ORDER_STATUS.PENDING, orderId]
   );
 }
 
 exports.createOrder = async (req, res, next) => {
   const { sapNumber, supplier, items, notes } = req.body;
-
   if (!sapNumber || !supplier || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({
       success: false,
-      message: 'sapNumber, supplier a items jsou povinné'
+      message: 'Chybí povinná data objednávky'
     });
   }
-
   const conn = await pool.getConnection();
+
   try {
     await conn.beginTransaction();
 
     const orderQR = generateOrderQR(sapNumber);
-
     const [orderResult] = await conn.query(
       `INSERT INTO Orders (sapNumber, orderQR, supplier, notes)
-       VALUES (?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?)` ,
       [sapNumber, orderQR, supplier, notes || null]
     );
 
     const orderId = orderResult.insertId;
 
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      const barcode = generateItemBarcode(i);
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      const barcode = await generateUniqueBarcode(conn, i);
 
       await conn.query(
         `INSERT INTO OrderItems
-         (orderId, barcode, itemName, quantity, dimension, material, position)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (orderId, barcode, itemName, quantity, dimension, material, position, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           orderId,
           barcode,
-          it.itemName,
-          it.quantity,
-          it.dimension || null,
-          it.material || null,
-          it.position || null
+          item.itemName,
+          item.quantity,
+          item.dimension || null,
+          item.material || null,
+          item.position || null,
+          ITEM_STATUS.PENDING
         ]
       );
     }
@@ -95,58 +101,78 @@ exports.createOrder = async (req, res, next) => {
       orderQR,
       message: 'Objednávka vytvořena'
     });
-  } catch (err) {
+  } catch (error) {
     await conn.rollback();
-    next(err);
+    error.statusCode = error.statusCode || 500;
+    next(error);
   } finally {
     conn.release();
   }
 };
 
 exports.getOrders = async (req, res, next) => {
-  const { status, supplier } = req.query;
+  const { status, supplier, page, limit } = req.query;
+  const { limit: safeLimit, offset, page: safePage } = getPaginationParams(page, limit);
 
-  let sql = `
-    SELECT
-      o.orderId,
-      o.sapNumber,
-      o.orderQR,
-      o.supplier,
-      o.dateCreated,
-      o.status,
-      COUNT(oi.itemId) AS itemsCount,
-      SUM(CASE WHEN oi.qtyReceived > 0 THEN 1 ELSE 0 END) AS itemsReceived
-    FROM Orders o
-    LEFT JOIN OrderItems oi ON oi.orderId = o.orderId
-    WHERE 1 = 1
-  `;
+  let whereClause = 'WHERE 1 = 1';
   const params = [];
 
   if (status) {
-    sql += ` AND o.status = ?`;
+    whereClause += ' AND o.status = ?';
     params.push(status);
   }
+
   if (supplier) {
-    sql += ` AND o.supplier = ?`;
-    params.push(supplier);
+    whereClause += ' AND o.supplier LIKE ?';
+    params.push(`%${supplier}%`);
   }
 
-  sql += ` GROUP BY o.orderId ORDER BY o.dateCreated DESC`;
-
   try {
-    const [rows] = await pool.query(sql, params);
-    res.json({ success: true, orders: rows });
-  } catch (err) {
-    next(err);
+    const countSql = `
+      SELECT COUNT(DISTINCT o.orderId) AS total
+      FROM Orders o
+      ${whereClause}
+    `;
+    const [countRows] = await pool.query(countSql, params);
+    const total = countRows[0]?.total || 0;
+
+    const dataSql = `
+      SELECT
+        o.orderId,
+        o.sapNumber,
+        o.orderQR,
+        o.supplier,
+        o.dateCreated,
+        o.status,
+        o.notes,
+        COUNT(oi.itemId) AS itemsCount,
+        SUM(CASE WHEN oi.qtyReceived > 0 THEN 1 ELSE 0 END) AS itemsReceived,
+        SUM(CASE WHEN oi.status = ? THEN 1 ELSE 0 END) AS itemsCompleted
+      FROM Orders o
+      LEFT JOIN OrderItems oi ON oi.orderId = o.orderId
+      ${whereClause}
+      GROUP BY o.orderId
+      ORDER BY o.dateCreated DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const [rows] = await pool.query(dataSql, [...params, ITEM_STATUS.COMPLETE, safeLimit, offset]);
+
+    const response = buildPaginatedResponse(rows, total, safePage, safeLimit);
+    response.orders = rows;
+
+    res.json(response);
+  } catch (error) {
+    next(error);
   }
 };
 
 exports.getOrderById = async (req, res, next) => {
-  const orderId = req.params.orderId;
+  const { orderId } = req.params;
 
   try {
     const [orders] = await pool.query(
-      `SELECT * FROM Orders WHERE orderId = ?`,
+      'SELECT * FROM Orders WHERE orderId = ?',
       [orderId]
     );
 
@@ -157,8 +183,6 @@ exports.getOrderById = async (req, res, next) => {
       });
     }
 
-    const order = orders[0];
-
     const [items] = await pool.query(
       `SELECT itemId, barcode, itemName, quantity, dimension, material, position,
               qtyReceived, status, dateReceived
@@ -166,22 +190,22 @@ exports.getOrderById = async (req, res, next) => {
       [orderId]
     );
 
-    res.json({
+    return res.json({
       success: true,
-      order,
+      order: orders[0],
       items
     });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    return next(error);
   }
 };
 
 exports.getOrderByQR = async (req, res, next) => {
-  const orderQR = req.params.orderQR;
+  const { orderQR } = req.params;
 
   try {
     const [orders] = await pool.query(
-      `SELECT * FROM Orders WHERE orderQR = ?`,
+      'SELECT * FROM Orders WHERE orderQR = ?',
       [orderQR]
     );
 
@@ -192,38 +216,29 @@ exports.getOrderByQR = async (req, res, next) => {
       });
     }
 
-    const order = orders[0];
-
     const [items] = await pool.query(
       `SELECT itemId, barcode, itemName, quantity, dimension, material, position,
               qtyReceived, status, dateReceived
        FROM OrderItems WHERE orderId = ?`,
-      [order.orderId]
+      [orders[0].orderId]
     );
 
-    res.json({
+    return res.json({
       success: true,
-      order,
+      order: orders[0],
       items
     });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    return next(error);
   }
 };
 
 exports.generateBarcodes = async (req, res, next) => {
   const { orderId } = req.body;
 
-  if (!orderId) {
-    return res.status(400).json({
-      success: false,
-      message: 'orderId je povinné'
-    });
-  }
-
   try {
     const [items] = await pool.query(
-      `SELECT barcode, itemName, quantity FROM OrderItems WHERE orderId = ?`,
+      'SELECT barcode, itemName, quantity FROM OrderItems WHERE orderId = ?',
       [orderId]
     );
 
@@ -234,12 +249,12 @@ exports.generateBarcodes = async (req, res, next) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       barcodes: items
     });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    return next(error);
   }
 };
 

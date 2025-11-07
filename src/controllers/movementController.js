@@ -1,21 +1,16 @@
 const pool = require('../config/db');
+const { MOVEMENT_TYPE } = require('../constants/statuses');
+const { getPaginationParams, buildPaginatedResponse } = require('../utils/pagination');
 
 exports.moveMaterial = async (req, res, next) => {
   const { barcode, warehouseId, position, quantity, notes } = req.body;
-
-  if (!barcode || !warehouseId || !position || !quantity) {
-    return res.status(400).json({
-      success: false,
-      message: 'barcode, warehouseId, position a quantity jsou povinné'
-    });
-  }
-
   const conn = await pool.getConnection();
+
   try {
     await conn.beginTransaction();
 
     const [itemRows] = await conn.query(
-      `SELECT itemId FROM OrderItems WHERE barcode = ?`,
+      'SELECT itemId FROM OrderItems WHERE barcode = ?',
       [barcode]
     );
 
@@ -68,9 +63,11 @@ exports.moveMaterial = async (req, res, next) => {
     await conn.query(
       `INSERT INTO Movements
        (barcode, movementType, toWarehouse, toPosition, quantity, notes)
-       VALUES (?, 'move', ?, ?, ?, ?)`,
-      [barcode, warehouseId, position, quantity, notes || null]
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [barcode, MOVEMENT_TYPE.MOVE, warehouseId, position, quantity, notes || null]
     );
+
+    await conn.query('DELETE FROM Inventory WHERE qtyAvailable = 0');
 
     await conn.commit();
 
@@ -84,9 +81,9 @@ exports.moveMaterial = async (req, res, next) => {
         qtyAvailable: inventoryRecord.qtyAvailable
       }
     });
-  } catch (err) {
+  } catch (error) {
     await conn.rollback();
-    next(err);
+    next(error);
   } finally {
     conn.release();
   }
@@ -94,15 +91,8 @@ exports.moveMaterial = async (req, res, next) => {
 
 exports.consumeMaterial = async (req, res, next) => {
   const { barcode, warehouseId, position, quantity, notes } = req.body;
-
-  if (!barcode || !warehouseId || !position || !quantity) {
-    return res.status(400).json({
-      success: false,
-      message: 'barcode, warehouseId, position a quantity jsou povinné'
-    });
-  }
-
   const conn = await pool.getConnection();
+
   try {
     await conn.beginTransaction();
 
@@ -143,9 +133,11 @@ exports.consumeMaterial = async (req, res, next) => {
     await conn.query(
       `INSERT INTO Movements
        (barcode, movementType, fromWarehouse, fromPosition, quantity, notes)
-       VALUES (?, 'consume', ?, ?, ?, ?)`,
-      [barcode, warehouseId, position, quantity, notes || null]
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [barcode, MOVEMENT_TYPE.CONSUME, warehouseId, position, quantity, notes || null]
     );
+
+    await conn.query('DELETE FROM Inventory WHERE qtyAvailable = 0');
 
     await conn.commit();
 
@@ -159,9 +151,9 @@ exports.consumeMaterial = async (req, res, next) => {
         qtyAvailable: newQty
       }
     });
-  } catch (err) {
+  } catch (error) {
     await conn.rollback();
-    next(err);
+    next(error);
   } finally {
     conn.release();
   }
@@ -169,24 +161,32 @@ exports.consumeMaterial = async (req, res, next) => {
 
 exports.getMovementsByBarcode = async (req, res, next) => {
   const { barcode } = req.params;
+  const { page, limit } = req.query;
+  const { limit: safeLimit, offset, page: safePage } = getPaginationParams(page, limit);
 
   try {
-    const [rows] = await pool.query(
-      `SELECT movementId, barcode, movementType,
-              fromWarehouse, fromPosition,
-              toWarehouse, toPosition,
-              quantity, notes, dateCreated
-       FROM Movements
-       WHERE barcode = ?
-       ORDER BY dateCreated DESC`,
-      [barcode]
-    );
+    const countSql = 'SELECT COUNT(*) AS total FROM Movements WHERE barcode = ?';
+    const [countRows] = await pool.query(countSql, [barcode]);
+    const total = countRows[0]?.total || 0;
 
-    res.json({
-      success: true,
-      movements: rows
-    });
-  } catch (err) {
-    next(err);
+    const dataSql = `
+      SELECT movementId, barcode, movementType,
+             fromWarehouse, fromPosition,
+             toWarehouse, toPosition,
+             quantity, notes, dateCreated
+      FROM Movements
+      WHERE barcode = ?
+      ORDER BY dateCreated DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const [rows] = await pool.query(dataSql, [barcode, safeLimit, offset]);
+
+    const response = buildPaginatedResponse(rows, total, safePage, safeLimit);
+    response.movements = rows;
+
+    res.json(response);
+  } catch (error) {
+    next(error);
   }
 };

@@ -26,7 +26,7 @@ async function buildAssemblyTree (orderId, depth = 0, maxDepth = 10) {
   const order = orderRows[0];
 
   const [components] = await pool.query(
-    `SELECT * FROM OrderComponents WHERE orderId = ? ORDER BY sortOrder, componentId`,
+    'SELECT * FROM OrderComponents WHERE orderId = ? ORDER BY sortOrder, componentId',
     [orderId]
   );
 
@@ -252,14 +252,14 @@ exports.addComponentToAssembly = async (req, res, next) => {
         operator || null,
         JSON.stringify({
           addedComponent: {
-          componentType,
-          componentOrderId: componentOrderId || null,
-          componentItemId: componentItemId || null,
-          componentOrderSapNumber: componentOrderInfo ? componentOrderInfo.sapNumber : null,
-          componentItemBarcode: componentItemInfo ? componentItemInfo.barcode : null,
-          quantityRequired: quantityRequired || 1,
-          sortOrder: sortOrder || 0
-        }
+            componentType,
+            componentOrderId: componentOrderId || null,
+            componentItemId: componentItemId || null,
+            componentOrderSapNumber: componentOrderInfo ? componentOrderInfo.sapNumber : null,
+            componentItemBarcode: componentItemInfo ? componentItemInfo.barcode : null,
+            quantityRequired: quantityRequired || 1,
+            sortOrder: sortOrder || 0
+          }
         })
       ]
     );
@@ -547,7 +547,7 @@ exports.getAssemblyReport = async (req, res, next) => {
     );
 
     const [auditLog] = await pool.query(
-      `SELECT * FROM AuditLog WHERE tableName = 'Orders' AND recordId = ? ORDER BY dateCreated DESC`,
+      'SELECT * FROM AuditLog WHERE tableName = \'Orders\' AND recordId = ? ORDER BY dateCreated DESC',
       [orderId]
     );
 

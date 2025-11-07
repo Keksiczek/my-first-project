@@ -93,7 +93,7 @@ exports.getQualityHistory = async (req, res, next) => {
     }
 
     const [rows] = await pool.query(
-      `SELECT * FROM QualityChecks WHERE orderId = ? ORDER BY dateChecked DESC`,
+      'SELECT * FROM QualityChecks WHERE orderId = ? ORDER BY dateChecked DESC',
       [orderId]
     );
 

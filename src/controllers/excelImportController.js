@@ -161,7 +161,7 @@ exports.importItemsFromExcel = async (req, res, next) => {
     const ensureUniqueSapNumber = async (baseSapNumber) => {
       let counter = 1;
       let candidate = baseSapNumber;
-      // eslint-disable-next-line no-constant-condition
+       
       while (true) {
         const [existing] = await conn.query(
           'SELECT orderId FROM Orders WHERE sapNumber = ?',

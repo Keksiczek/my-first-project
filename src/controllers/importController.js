@@ -28,7 +28,7 @@ function parseCsv (csvData) {
 }
 
 exports.importCsv = async (req, res, next) => {
-  const { sapNumber, supplier, csvData } = req.body;
+  const { csvData } = req.body;
 
   try {
     const parsed = parseCsv(csvData);

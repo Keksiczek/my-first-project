@@ -84,7 +84,7 @@ app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Endpoint nenalezen' });
 });
 
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   logger.error('Nezpracovaná chyba', {
     error: err.message,
     stack: err.stack

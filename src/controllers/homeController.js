@@ -4,11 +4,11 @@ const pool = require('../config/db');
 exports.getDashboard = async (req, res, next) => {
   try {
     const [orderTypeStats] = await pool.query(
-      `SELECT orderType, COUNT(*) AS count FROM Orders GROUP BY orderType`
+      'SELECT orderType, COUNT(*) AS count FROM Orders GROUP BY orderType'
     );
 
     const [assemblyStats] = await pool.query(
-      `SELECT assemblyStatus, COUNT(*) AS count FROM Orders WHERE orderType = 'zakazka' GROUP BY assemblyStatus`
+      'SELECT assemblyStatus, COUNT(*) AS count FROM Orders WHERE orderType = \'zakazka\' GROUP BY assemblyStatus'
     );
 
     const [warehouseStats] = await pool.query(
@@ -18,7 +18,7 @@ exports.getDashboard = async (req, res, next) => {
     );
 
     const [inventoryStats] = await pool.query(
-      `SELECT COUNT(DISTINCT barcode) AS totalItems, SUM(qtyAvailable) AS totalQuantity FROM Inventory`
+      'SELECT COUNT(DISTINCT barcode) AS totalItems, SUM(qtyAvailable) AS totalQuantity FROM Inventory'
     );
 
     const [recentMovements] = await pool.query(

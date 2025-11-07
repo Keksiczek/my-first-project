@@ -2,6 +2,7 @@ const pool = require('../config/db');
 const { ITEM_STATUS, ORDER_STATUS } = require('../constants/statuses');
 const { generateOrderQR, generateItemBarcode, calculateOrderStatus } = require('../utils/helpers');
 const { getPaginationParams, buildPaginatedResponse } = require('../utils/pagination');
+const logger = require('../config/logger');
 
 async function generateUniqueBarcode (conn, index) {
   let attempt = 0;
@@ -108,7 +109,18 @@ exports.createOrder = async (req, res, next) => {
       );
     }
 
+    await conn.query(
+      `INSERT INTO AuditLog (tableName, recordId, action, userId, newValue)
+       VALUES ('Orders', ?, 'CREATE', NULL, ?)` ,
+      [
+        orderId,
+        JSON.stringify({ sapNumber, supplier, items: items.length })
+      ]
+    );
+
     await conn.commit();
+
+    logger.info('Order created', { orderId, sapNumber, items: items.length });
 
     res.status(201).json({
       success: true,
@@ -283,7 +295,7 @@ exports.updateOrder = async (req, res, next) => {
     await conn.beginTransaction();
 
     const [orderRows] = await conn.query(
-      'SELECT orderId FROM Orders WHERE orderId = ?',
+      'SELECT * FROM Orders WHERE orderId = ?',
       [orderId]
     );
 
@@ -330,7 +342,19 @@ exports.updateOrder = async (req, res, next) => {
       [orderId]
     );
 
+    await conn.query(
+      `INSERT INTO AuditLog (tableName, recordId, action, userId, oldValue, newValue)
+       VALUES ('Orders', ?, 'UPDATE', NULL, ?, ?)` ,
+      [
+        orderId,
+        JSON.stringify(existingRows[0]),
+        JSON.stringify(updatedOrder[0])
+      ]
+    );
+
     await conn.commit();
+
+    logger.info('Order updated', { orderId });
 
     return res.json({
       success: true,
@@ -379,10 +403,23 @@ exports.deleteOrder = async (req, res, next) => {
       });
     }
 
+    const [orderItems] = await conn.query(
+      'SELECT itemId, barcode, quantity, qtyReceived FROM OrderItems WHERE orderId = ?',
+      [orderId]
+    );
+
     await conn.query('DELETE FROM OrderItems WHERE orderId = ?', [orderId]);
     await conn.query('DELETE FROM Orders WHERE orderId = ?', [orderId]);
 
+    await conn.query(
+      `INSERT INTO AuditLog (tableName, recordId, action, userId, oldValue)
+       VALUES ('Orders', ?, 'DELETE', NULL, ?)` ,
+      [orderId, JSON.stringify({ order: orderRows[0], items: orderItems })]
+    );
+
     await conn.commit();
+
+    logger.info('Order deleted', { orderId: Number(orderId) });
 
     return res.json({
       success: true,

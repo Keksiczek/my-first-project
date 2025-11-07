@@ -1,4 +1,9 @@
 const { body, param, query, validationResult } = require('express-validator');
+const {
+  ORDER_TYPE,
+  COMPONENT_TYPE,
+  QUALITY_RESULT
+} = require('../constants/statuses');
 
 /**
  * Vrací middleware, který odesílá validační chyby v jednotném formátu.
@@ -71,7 +76,8 @@ const validateReceive = [
 const validateMove = [
   body('barcode')
     .notEmpty().withMessage('Čárový kód je povinný')
-    .matches(/^MAT-\d{6}-\d{3}$/).withMessage('Čárový kód musí být ve formátu MAT-YYMMDD-XXX'),
+    .matches(/^MAT-\d{6}-\d{3}$/).withMessage('Čárový kód musí být ve formátu MAT-YYMMDD-XXX')
+    .isLength({ max: 50 }).withMessage('Čárový kód může mít maximálně 50 znaků'),
   body('warehouseId')
     .notEmpty().withMessage('ID skladu je povinné')
     .isLength({ max: 50 }).withMessage('ID skladu může mít maximálně 50 znaků'),
@@ -89,11 +95,14 @@ const validateMove = [
 const validateConsume = [
   body('barcode')
     .notEmpty().withMessage('Čárový kód je povinný')
-    .matches(/^MAT-\d{6}-\d{3}$/).withMessage('Čárový kód musí být ve formátu MAT-YYMMDD-XXX'),
+    .matches(/^MAT-\d{6}-\d{3}$/).withMessage('Čárový kód musí být ve formátu MAT-YYMMDD-XXX')
+    .isLength({ max: 50 }).withMessage('Čárový kód může mít maximálně 50 znaků'),
   body('warehouseId')
-    .notEmpty().withMessage('ID skladu je povinné'),
+    .notEmpty().withMessage('ID skladu je povinné')
+    .isLength({ max: 50 }).withMessage('ID skladu může mít maximálně 50 znaků'),
   body('position')
-    .notEmpty().withMessage('Pozice je povinná'),
+    .notEmpty().withMessage('Pozice je povinná')
+    .isLength({ max: 50 }).withMessage('Pozice může mít maximálně 50 znaků'),
   body('quantity')
     .isInt({ min: 1 }).withMessage('Množství musí být kladné celé číslo'),
   body('notes')
@@ -131,6 +140,25 @@ const validateWarehouse = [
   handleValidationErrors
 ];
 
+const validateWarehouseUpdate = [
+  body('warehouseName')
+    .optional()
+    .isLength({ max: 255 }).withMessage('Název skladu může mít maximálně 255 znaků'),
+  body('location')
+    .optional()
+    .isLength({ max: 255 }).withMessage('Umístění může mít maximálně 255 znaků'),
+  body('capacity')
+    .optional()
+    .isInt({ min: 0 }).withMessage('Kapacita musí být nezáporné celé číslo'),
+  body('notes')
+    .optional()
+    .isLength({ max: 1000 }).withMessage('Poznámka může mít maximálně 1000 znaků'),
+  body('isActive')
+    .optional()
+    .isBoolean().withMessage('isActive musí být boolean'),
+  handleValidationErrors
+];
+
 const validateWarehouseId = [
   param('warehouseId')
     .notEmpty().withMessage('ID skladu je povinné')
@@ -161,6 +189,92 @@ const validateOrderId = [
   handleValidationErrors
 ];
 
+const validateComponentId = [
+  param('componentId')
+    .isInt({ min: 1 }).withMessage('ID komponenty musí být kladné číslo'),
+  handleValidationErrors
+];
+
+const validateAssemblyCreate = [
+  body('sapNumber')
+    .notEmpty().withMessage('SAP číslo je povinné')
+    .isLength({ max: 50 }).withMessage('SAP číslo může mít maximálně 50 znaků'),
+  body('supplier')
+    .notEmpty().withMessage('Dodavatel je povinný')
+    .isLength({ max: 255 }).withMessage('Dodavatel může mít maximálně 255 znaků'),
+  body('orderType')
+    .optional()
+    .isIn(Object.values(ORDER_TYPE)).withMessage('Neplatný typ zakázky'),
+  body('parentOrderId')
+    .optional()
+    .isInt({ min: 1 }).withMessage('parentOrderId musí být kladné číslo'),
+  body('notes')
+    .optional()
+    .isLength({ max: 1000 }).withMessage('Poznámka může mít maximálně 1000 znaků'),
+  body('operator')
+    .optional()
+    .isLength({ max: 100 }).withMessage('Operator může mít maximálně 100 znaků'),
+  handleValidationErrors
+];
+
+const validateAssemblyComponent = [
+  param('orderId')
+    .isInt({ min: 1 }).withMessage('ID zakázky musí být kladné číslo'),
+  body('componentType')
+    .notEmpty().withMessage('Typ komponenty je povinný')
+    .isIn(Object.values(COMPONENT_TYPE)).withMessage('Neplatný typ komponenty'),
+  body('componentOrderId')
+    .if(body('componentType').equals(COMPONENT_TYPE.ORDER))
+    .notEmpty().withMessage('componentOrderId je povinné pro komponentu typu order')
+    .bail()
+    .isInt({ min: 1 }).withMessage('componentOrderId musí být kladné číslo'),
+  body('componentItemId')
+    .if(body('componentType').equals(COMPONENT_TYPE.ITEM))
+    .notEmpty().withMessage('componentItemId je povinné pro komponentu typu item')
+    .bail()
+    .isInt({ min: 1 }).withMessage('componentItemId musí být kladné číslo'),
+  body('quantityRequired')
+    .optional()
+    .isInt({ min: 1 }).withMessage('Požadované množství musí být kladné celé číslo'),
+  body('sortOrder')
+    .optional()
+    .isInt({ min: 0 }).withMessage('sortOrder musí být nezáporné číslo'),
+  body('operator')
+    .optional()
+    .isLength({ max: 100 }).withMessage('Operator může mít maximálně 100 znaků'),
+  handleValidationErrors
+];
+
+const validateAssemblyAction = [
+  param('orderId')
+    .isInt({ min: 1 }).withMessage('ID zakázky musí být kladné číslo'),
+  body('operator')
+    .optional()
+    .isLength({ max: 100 }).withMessage('Operator může mít maximálně 100 znaků'),
+  body('notes')
+    .optional()
+    .isLength({ max: 1000 }).withMessage('Poznámka může mít maximálně 1000 znaků'),
+  handleValidationErrors
+];
+
+const validateQualityCheck = [
+  param('orderId')
+    .isInt({ min: 1 }).withMessage('ID zakázky musí být kladné číslo'),
+  body('result')
+    .notEmpty().withMessage('Výsledek kontroly je povinný')
+    .isIn(Object.values(QUALITY_RESULT)).withMessage('Neplatný výsledek kontroly'),
+  body('inspector')
+    .notEmpty().withMessage('Jméno inspektora je povinné')
+    .isLength({ max: 100 }).withMessage('Jméno inspektora může mít maximálně 100 znaků'),
+  body('notes')
+    .optional()
+    .isLength({ max: 1000 }).withMessage('Poznámka může mít maximálně 1000 znaků'),
+  body('parameters')
+    .optional()
+    .isObject().withMessage('Parametry musí být objekt'),
+  handleValidationErrors
+];
+
 const validatePagination = [
   query('page')
     .optional()
@@ -182,5 +296,11 @@ module.exports = {
   validateOrderId,
   validatePagination,
   validateWarehouse,
-  validateWarehouseId
+  validateWarehouseId,
+  validateWarehouseUpdate,
+  validateAssemblyCreate,
+  validateAssemblyComponent,
+  validateComponentId,
+  validateAssemblyAction,
+  validateQualityCheck
 };

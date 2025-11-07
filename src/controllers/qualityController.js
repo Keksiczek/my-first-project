@@ -1,6 +1,7 @@
-// ZMĚNA: Nový controller pro kontrolu kvality
+// ZMĚNA: Controller pro kontrolu kvality s auditním logováním
 const pool = require('../config/db');
-const { QUALITY_RESULT, ASSEMBLY_STATUS } = require('../constants/statuses');
+const { QUALITY_RESULT, ASSEMBLY_STATUS, REPORT_TYPE } = require('../constants/statuses');
+const logger = require('../config/logger');
 
 exports.performQualityCheck = async (req, res, next) => {
   const { orderId } = req.params;
@@ -12,7 +13,7 @@ exports.performQualityCheck = async (req, res, next) => {
     await conn.beginTransaction();
 
     const [orderRows] = await conn.query(
-      'SELECT orderId FROM Orders WHERE orderId = ?',
+      'SELECT orderId, assemblyStatus FROM Orders WHERE orderId = ?',
       [orderId]
     );
 
@@ -37,12 +38,37 @@ exports.performQualityCheck = async (req, res, next) => {
     );
 
     await conn.query(
-      `INSERT INTO AuditLog (tableName, recordId, action, userId, newValue)
-       VALUES ('Orders', ?, 'STATUS_CHANGE', ?, ?)` ,
-      [orderId, inspector || null, JSON.stringify({ assemblyStatus: newStatus, qualityResult: result })]
+      `INSERT INTO AssemblyReports (orderId, reportType, operator, previousStatus, newStatus, notes)
+       VALUES (?, ?, ?, ?, ?, ?)` ,
+      [
+        orderId,
+        REPORT_TYPE.QUALITY,
+        inspector || null,
+        orderRows[0].assemblyStatus,
+        newStatus,
+        notes || null
+      ]
+    );
+
+    await conn.query(
+      `INSERT INTO AuditLog (tableName, recordId, action, userId, oldValue, newValue)
+       VALUES ('Orders', ?, 'STATUS_CHANGE', ?, ?, ?)` ,
+      [
+        orderId,
+        inspector || null,
+        JSON.stringify({ assemblyStatus: orderRows[0].assemblyStatus }),
+        JSON.stringify({ assemblyStatus: newStatus, qualityResult: result })
+      ]
     );
 
     await conn.commit();
+
+    logger.info('Quality check recorded', {
+      orderId: Number(orderId),
+      result,
+      inspector,
+      assemblyStatus: newStatus
+    });
 
     res.json({ success: true, message: 'Kontrola kvality uložena', result: newStatus });
   } catch (error) {
@@ -57,6 +83,15 @@ exports.getQualityHistory = async (req, res, next) => {
   const { orderId } = req.params;
 
   try {
+    const [orderRows] = await pool.query(
+      'SELECT orderId FROM Orders WHERE orderId = ?',
+      [orderId]
+    );
+
+    if (orderRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Zakázka nenalezena' });
+    }
+
     const [rows] = await pool.query(
       `SELECT * FROM QualityChecks WHERE orderId = ? ORDER BY dateChecked DESC`,
       [orderId]

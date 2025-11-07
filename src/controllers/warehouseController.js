@@ -1,33 +1,43 @@
-// ZMĚNA: Nový controller pro správu skladů
+// ZMĚNA: Controller pro správu skladů s transakcemi a logováním
 const pool = require('../config/db');
 const { getPaginationParams, buildPaginatedResponse } = require('../utils/pagination');
+const logger = require('../config/logger');
 
 exports.createWarehouse = async (req, res, next) => {
   const { warehouseId, warehouseName, location, capacity, notes } = req.body;
 
+  const conn = await pool.getConnection();
+
   try {
-    const [existing] = await pool.query(
+    await conn.beginTransaction();
+
+    const [existing] = await conn.query(
       'SELECT warehouseId FROM Warehouses WHERE warehouseId = ?',
       [warehouseId]
     );
 
     if (existing.length > 0) {
+      await conn.rollback();
       return res.status(409).json({
         success: false,
         message: 'Sklad s tímto ID již existuje'
       });
     }
 
-    await pool.query(
+    await conn.query(
       `INSERT INTO Warehouses (warehouseId, warehouseName, location, capacity, notes)
        VALUES (?, ?, ?, ?, ?)` ,
       [warehouseId, warehouseName, location || null, capacity || null, notes || null]
     );
 
-    const [rows] = await pool.query(
+    await conn.commit();
+
+    const [rows] = await conn.query(
       'SELECT * FROM Warehouses WHERE warehouseId = ?',
       [warehouseId]
     );
+
+    logger.info('Warehouse created', { warehouseId });
 
     return res.status(201).json({
       success: true,
@@ -35,7 +45,10 @@ exports.createWarehouse = async (req, res, next) => {
       data: rows[0]
     });
   } catch (error) {
+    await conn.rollback();
     return next(error);
+  } finally {
+    conn.release();
   }
 };
 
@@ -172,10 +185,12 @@ exports.updateWarehouse = async (req, res, next) => {
 
     await conn.commit();
 
-    const [updatedRows] = await pool.query(
+    const [updatedRows] = await conn.query(
       'SELECT * FROM Warehouses WHERE warehouseId = ?',
       [warehouseId]
     );
+
+    logger.info('Warehouse updated', { warehouseId });
 
     res.json({
       success: true,
@@ -230,6 +245,8 @@ exports.deactivateWarehouse = async (req, res, next) => {
     );
 
     await conn.commit();
+
+    logger.info('Warehouse deactivated', { warehouseId });
 
     res.json({
       success: true,

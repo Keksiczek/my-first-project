@@ -1,4 +1,4 @@
-// ZMĚNA: Nový controller pro práci se stromovou strukturou zakázek
+// ZMĚNA: Rozšířený controller pro práci se stromovou strukturou zakázek
 const pool = require('../config/db');
 const {
   ORDER_TYPE,
@@ -7,6 +7,7 @@ const {
   REPORT_TYPE
 } = require('../constants/statuses');
 const { generateOrderQR } = require('../utils/helpers');
+const logger = require('../config/logger');
 
 async function buildAssemblyTree (orderId, depth = 0, maxDepth = 10) {
   if (depth > maxDepth) {
@@ -66,6 +67,8 @@ async function buildAssemblyTree (orderId, depth = 0, maxDepth = 10) {
   };
 }
 
+exports.buildAssemblyTree = buildAssemblyTree;
+
 exports.createAssembly = async (req, res, next) => {
   const { sapNumber, supplier, orderType, parentOrderId, notes, operator } = req.body;
 
@@ -88,7 +91,25 @@ exports.createAssembly = async (req, res, next) => {
       });
     }
 
+    let parentInfo = null;
+    if (parentOrderId) {
+      const [parentRows] = await conn.query(
+        'SELECT orderId, sapNumber FROM Orders WHERE orderId = ?',
+        [parentOrderId]
+      );
+
+      if (parentRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({
+          success: false,
+          message: 'Nadřazená zakázka nenalezena'
+        });
+      }
+      parentInfo = parentRows[0];
+    }
+
     const orderQR = generateOrderQR(sapNumber);
+    const resolvedOrderType = orderType || (parentOrderId ? ORDER_TYPE.PODMONTAZ : ORDER_TYPE.ZAKAZKA);
 
     const [insertResult] = await conn.query(
       `INSERT INTO Orders (sapNumber, orderQR, supplier, notes, orderType, parentOrderId, operator)
@@ -98,7 +119,7 @@ exports.createAssembly = async (req, res, next) => {
         orderQR,
         supplier,
         notes || null,
-        orderType || ORDER_TYPE.ZAKAZKA,
+        resolvedOrderType,
         parentOrderId || null,
         operator || null
       ]
@@ -106,15 +127,38 @@ exports.createAssembly = async (req, res, next) => {
 
     const newOrderId = insertResult.insertId;
 
-    if (parentOrderId) {
+    await conn.query(
+      `INSERT INTO AuditLog (tableName, recordId, action, userId, newValue)
+       VALUES ('Orders', ?, 'CREATE', ?, ?)` ,
+      [newOrderId, operator || null, JSON.stringify({ sapNumber, orderType: resolvedOrderType })]
+    );
+
+    if (parentInfo) {
       await conn.query(
         `INSERT INTO OrderComponents (orderId, componentType, componentOrderId, quantityRequired)
          VALUES (?, ?, ?, ?)` ,
         [parentOrderId, COMPONENT_TYPE.ORDER, newOrderId, 1]
       );
+
+      await conn.query(
+        `INSERT INTO AuditLog (tableName, recordId, action, userId, newValue)
+         VALUES ('Orders', ?, 'UPDATE', ?, ?)` ,
+        [
+          parentOrderId,
+          operator || null,
+          JSON.stringify({ addedComponentOrderId: newOrderId })
+        ]
+      );
     }
 
     await conn.commit();
+
+    logger.info('Assembly created', {
+      orderId: newOrderId,
+      sapNumber,
+      orderType: resolvedOrderType,
+      parentOrderId: parentInfo ? parentInfo.orderId : null
+    });
 
     res.status(201).json({
       success: true,
@@ -131,7 +175,9 @@ exports.createAssembly = async (req, res, next) => {
 
 exports.addComponentToAssembly = async (req, res, next) => {
   const { orderId } = req.params;
-  const { componentType, componentOrderId, componentItemId, quantityRequired, sortOrder } = req.body;
+  const { componentType, componentOrderId, componentItemId, quantityRequired, sortOrder, operator } = req.body;
+  let componentOrderInfo = null;
+  let componentItemInfo = null;
 
   const conn = await pool.getConnection();
 
@@ -152,15 +198,34 @@ exports.addComponentToAssembly = async (req, res, next) => {
     }
 
     if (componentType === COMPONENT_TYPE.ORDER) {
-      if (!componentOrderId) {
+      if (Number(componentOrderId) === Number(orderId)) {
         await conn.rollback();
-        return res.status(400).json({ success: false, message: 'Chybí componentOrderId' });
+        return res.status(400).json({ success: false, message: 'Zakázka nemůže být komponentou sama sebe' });
       }
+
+      const [componentOrderRows] = await conn.query(
+        'SELECT orderId, sapNumber FROM Orders WHERE orderId = ?',
+        [componentOrderId]
+      );
+
+      if (componentOrderRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ success: false, message: 'Komponenta - zakázka nenalezena' });
+      }
+
+      componentOrderInfo = componentOrderRows[0];
     } else if (componentType === COMPONENT_TYPE.ITEM) {
-      if (!componentItemId) {
+      const [componentItemRows] = await conn.query(
+        'SELECT itemId, barcode FROM OrderItems WHERE itemId = ?',
+        [componentItemId]
+      );
+
+      if (componentItemRows.length === 0) {
         await conn.rollback();
-        return res.status(400).json({ success: false, message: 'Chybí componentItemId' });
+        return res.status(404).json({ success: false, message: 'Komponenta - položka nenalezena' });
       }
+
+      componentItemInfo = componentItemRows[0];
     } else {
       await conn.rollback();
       return res.status(400).json({ success: false, message: 'Neznámý typ komponenty' });
@@ -179,7 +244,35 @@ exports.addComponentToAssembly = async (req, res, next) => {
       ]
     );
 
+    await conn.query(
+      `INSERT INTO AuditLog (tableName, recordId, action, userId, newValue)
+       VALUES ('Orders', ?, 'UPDATE', ?, ?)` ,
+      [
+        orderId,
+        operator || null,
+        JSON.stringify({
+          addedComponent: {
+          componentType,
+          componentOrderId: componentOrderId || null,
+          componentItemId: componentItemId || null,
+          componentOrderSapNumber: componentOrderInfo ? componentOrderInfo.sapNumber : null,
+          componentItemBarcode: componentItemInfo ? componentItemInfo.barcode : null,
+          quantityRequired: quantityRequired || 1,
+          sortOrder: sortOrder || 0
+        }
+        })
+      ]
+    );
+
     await conn.commit();
+
+    logger.info('Assembly component added', {
+      orderId: Number(orderId),
+      componentType,
+      componentOrderId: componentOrderId || null,
+      componentItemId: componentItemId || null,
+      quantity: quantityRequired || 1
+    });
 
     res.status(201).json({
       success: true,
@@ -195,26 +288,53 @@ exports.addComponentToAssembly = async (req, res, next) => {
 
 exports.removeComponentFromAssembly = async (req, res, next) => {
   const { componentId } = req.params;
+  const conn = await pool.getConnection();
 
   try {
-    const [result] = await pool.query(
-      'DELETE FROM OrderComponents WHERE componentId = ?',
+    await conn.beginTransaction();
+
+    const [componentRows] = await conn.query(
+      'SELECT * FROM OrderComponents WHERE componentId = ?',
       [componentId]
     );
 
-    if (result.affectedRows === 0) {
+    if (componentRows.length === 0) {
+      await conn.rollback();
       return res.status(404).json({
         success: false,
         message: 'Komponenta nenalezena'
       });
     }
 
+    const component = componentRows[0];
+
+    await conn.query(
+      'DELETE FROM OrderComponents WHERE componentId = ?',
+      [componentId]
+    );
+
+    await conn.query(
+      `INSERT INTO AuditLog (tableName, recordId, action, userId, oldValue)
+       VALUES ('Orders', ?, 'UPDATE', NULL, ?)` ,
+      [component.orderId, JSON.stringify({ removedComponent: component })]
+    );
+
+    await conn.commit();
+
+    logger.info('Assembly component removed', {
+      componentId: Number(componentId),
+      orderId: component.orderId
+    });
+
     res.json({
       success: true,
       message: 'Komponenta odstraněna'
     });
   } catch (error) {
+    await conn.rollback();
     next(error);
+  } finally {
+    conn.release();
   }
 };
 
@@ -250,13 +370,25 @@ exports.startAssembly = async (req, res, next) => {
     await conn.beginTransaction();
 
     const [orderRows] = await conn.query(
-      'SELECT assemblyStatus FROM Orders WHERE orderId = ?',
+      'SELECT assemblyStatus FROM Orders WHERE orderId = ? FOR UPDATE',
       [orderId]
     );
 
     if (orderRows.length === 0) {
       await conn.rollback();
       return res.status(404).json({ success: false, message: 'Zakázka nenalezena' });
+    }
+
+    const currentStatus = orderRows[0].assemblyStatus;
+    if ([
+      ASSEMBLY_STATUS.IN_PROGRESS,
+      ASSEMBLY_STATUS.COMPLETED,
+      ASSEMBLY_STATUS.QUALITY_CHECK,
+      ASSEMBLY_STATUS.APPROVED,
+      ASSEMBLY_STATUS.REJECTED
+    ].includes(currentStatus)) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Zakázku nelze zahájit v aktuálním stavu' });
     }
 
     await conn.query(
@@ -273,13 +405,26 @@ exports.startAssembly = async (req, res, next) => {
         orderId,
         REPORT_TYPE.START,
         operator || null,
-        orderRows[0].assemblyStatus,
+        currentStatus,
         ASSEMBLY_STATUS.IN_PROGRESS,
         notes || null
       ]
     );
 
+    await conn.query(
+      `INSERT INTO AuditLog (tableName, recordId, action, userId, oldValue, newValue)
+       VALUES ('Orders', ?, 'STATUS_CHANGE', ?, ?, ?)` ,
+      [
+        orderId,
+        operator || null,
+        JSON.stringify({ assemblyStatus: currentStatus }),
+        JSON.stringify({ assemblyStatus: ASSEMBLY_STATUS.IN_PROGRESS })
+      ]
+    );
+
     await conn.commit();
+
+    logger.info('Assembly started', { orderId: Number(orderId), operator: operator || null });
 
     res.json({ success: true, message: 'Zakázka zahájena' });
   } catch (error) {
@@ -300,7 +445,7 @@ exports.completeAssembly = async (req, res, next) => {
     await conn.beginTransaction();
 
     const [orderRows] = await conn.query(
-      'SELECT assemblyStatus, dateStarted FROM Orders WHERE orderId = ?',
+      'SELECT assemblyStatus, dateStarted FROM Orders WHERE orderId = ? FOR UPDATE',
       [orderId]
     );
 
@@ -309,15 +454,20 @@ exports.completeAssembly = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Zakázka nenalezena' });
     }
 
-    const now = new Date();
-    let workDuration = null;
-    if (orderRows[0].dateStarted) {
-      workDuration = Math.floor((now - orderRows[0].dateStarted) / 60000);
+    const { assemblyStatus: currentStatus, dateStarted } = orderRows[0];
+
+    if ([ASSEMBLY_STATUS.COMPLETED, ASSEMBLY_STATUS.APPROVED, ASSEMBLY_STATUS.REJECTED].includes(currentStatus)) {
+      await conn.rollback();
+      return res.status(400).json({ success: false, message: 'Zakázku již není možné dokončit' });
     }
+
+    const now = new Date();
+    const startDate = dateStarted ? new Date(dateStarted) : null;
+    const workDuration = startDate ? Math.floor((now.getTime() - startDate.getTime()) / 60000) : null;
 
     await conn.query(
       `UPDATE Orders
-         SET assemblyStatus = ?, dateCompleted = NOW(), operator = COALESCE(?, operator)
+         SET assemblyStatus = ?, dateCompleted = NOW(), dateStarted = COALESCE(dateStarted, NOW()), operator = COALESCE(?, operator)
        WHERE orderId = ?` ,
       [ASSEMBLY_STATUS.COMPLETED, operator || null, orderId]
     );
@@ -329,14 +479,31 @@ exports.completeAssembly = async (req, res, next) => {
         orderId,
         REPORT_TYPE.COMPLETE,
         operator || null,
-        orderRows[0].assemblyStatus,
+        currentStatus,
         ASSEMBLY_STATUS.COMPLETED,
         workDuration,
         notes || null
       ]
     );
 
+    await conn.query(
+      `INSERT INTO AuditLog (tableName, recordId, action, userId, oldValue, newValue)
+       VALUES ('Orders', ?, 'STATUS_CHANGE', ?, ?, ?)` ,
+      [
+        orderId,
+        operator || null,
+        JSON.stringify({ assemblyStatus: currentStatus }),
+        JSON.stringify({ assemblyStatus: ASSEMBLY_STATUS.COMPLETED })
+      ]
+    );
+
     await conn.commit();
+
+    logger.info('Assembly completed', {
+      orderId: Number(orderId),
+      operator: operator || null,
+      workDurationMinutes: workDuration
+    });
 
     res.json({ success: true, message: 'Zakázka dokončena', workDurationMinutes: workDuration });
   } catch (error) {
@@ -364,7 +531,9 @@ exports.getAssemblyReport = async (req, res, next) => {
 
     let workDuration = null;
     if (order.dateStarted && order.dateCompleted) {
-      workDuration = Math.floor((order.dateCompleted - order.dateStarted) / 60000);
+      const startDate = new Date(order.dateStarted);
+      const endDate = new Date(order.dateCompleted);
+      workDuration = Math.floor((endDate.getTime() - startDate.getTime()) / 60000);
     }
 
     const [reports] = await pool.query(

@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const { recalcOrderStatus } = require('./orderController');
 const { ITEM_STATUS, MOVEMENT_TYPE } = require('../constants/statuses');
+const logger = require('../config/logger');
 
 // ZMĚNA: příjem nyní vyžaduje údaje o skladě a automaticky aktualizuje inventář
 exports.receiveFull = async (req, res, next) => {
@@ -94,6 +95,13 @@ exports.receiveFull = async (req, res, next) => {
     await recalcOrderStatus(conn, item.orderId);
 
     await conn.commit();
+
+    logger.info('Material received', {
+      barcode,
+      quantity: quantityReceived,
+      warehouseId,
+      position
+    });
 
     res.json({
       success: true,
@@ -212,6 +220,13 @@ exports.receivePartial = async (req, res, next) => {
     await recalcOrderStatus(conn, item.orderId);
 
     await conn.commit();
+
+    logger.info('Material partially received', {
+      barcode,
+      quantity: quantityReceived,
+      warehouseId,
+      position
+    });
 
     res.json({
       success: true,

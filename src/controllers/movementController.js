@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const { MOVEMENT_TYPE } = require('../constants/statuses');
 const { getPaginationParams, buildPaginatedResponse } = require('../utils/pagination');
+const logger = require('../config/logger');
 
 exports.moveMaterial = async (req, res, next) => {
   const { barcode, warehouseId, position, quantity, notes } = req.body;
@@ -70,6 +71,13 @@ exports.moveMaterial = async (req, res, next) => {
     await conn.query('DELETE FROM Inventory WHERE qtyAvailable = 0');
 
     await conn.commit();
+
+    logger.info('Material moved', {
+      barcode,
+      warehouseId,
+      position,
+      quantity
+    });
 
     res.json({
       success: true,
@@ -154,6 +162,13 @@ exports.consumeMaterial = async (req, res, next) => {
     await conn.query('DELETE FROM Inventory WHERE qtyAvailable = 0');
 
     await conn.commit();
+
+    logger.info('Material consumed', {
+      barcode,
+      warehouseId,
+      position,
+      quantity
+    });
 
     res.json({
       success: true,

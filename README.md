@@ -52,12 +52,13 @@ API poběží na `http://localhost:3000`.
 - `POST /api/inventory/move` – přesun / zaskladnění
 - `GET /api/inventory` – přehled skladu
 - `GET /api/movements/:barcode` – historie pohybů
-- `POST /api/orders/generate/barcodes` – seznam čárových kódů pro tisk
+- `POST /api/orders/generate-barcodes` – seznam čárových kódů pro tisk (alias: `/generate/barcodes`)
 - `POST /api/import/csv` – import položek z CSV do nové objednávky
+- `POST /api/consume` – výdej/spotřeba materiálu ze skladu
 
 ## 4. Poznámky
 
 - Autentizace zatím není – API je otevřené.
 - Status objednávky se automaticky přepočítává podle `qtyReceived` u všech položek.
-- Pohyby (`Movements`) se generují při příjmu a při přesunu.
+- Pohyby (`Movements`) se generují při příjmu, přesunu i výdeji.
 - CSV import očekává hlavičku: `itemName,quantity,dimension,material,position`.

@@ -14,6 +14,19 @@ exports.moveMaterial = async (req, res, next) => {
   try {
     await conn.beginTransaction();
 
+    const [itemRows] = await conn.query(
+      `SELECT itemId FROM OrderItems WHERE barcode = ?`,
+      [barcode]
+    );
+
+    if (itemRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Položka s daným čárovým kódem neexistuje'
+      });
+    }
+
     const [rows] = await conn.query(
       `SELECT * FROM Inventory
        WHERE barcode = ? AND warehouseId = ? AND position = ?
@@ -69,6 +82,81 @@ exports.moveMaterial = async (req, res, next) => {
         warehouseId: inventoryRecord.warehouseId,
         position: inventoryRecord.position,
         qtyAvailable: inventoryRecord.qtyAvailable
+      }
+    });
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
+};
+
+exports.consumeMaterial = async (req, res, next) => {
+  const { barcode, warehouseId, position, quantity, notes } = req.body;
+
+  if (!barcode || !warehouseId || !position || !quantity) {
+    return res.status(400).json({
+      success: false,
+      message: 'barcode, warehouseId, position a quantity jsou povinné'
+    });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [inventoryRows] = await conn.query(
+      `SELECT * FROM Inventory
+       WHERE barcode = ? AND warehouseId = ? AND position = ?
+       FOR UPDATE`,
+      [barcode, warehouseId, position]
+    );
+
+    if (inventoryRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'Záznam ve skladu pro dané umístění nenalezen'
+      });
+    }
+
+    const current = inventoryRows[0];
+
+    if (current.qtyAvailable < quantity) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Nedostatečné množství na skladě'
+      });
+    }
+
+    const newQty = current.qtyAvailable - quantity;
+
+    await conn.query(
+      `UPDATE Inventory
+       SET qtyAvailable = ?, dateUpdated = NOW()
+       WHERE inventoryId = ?`,
+      [newQty, current.inventoryId]
+    );
+
+    await conn.query(
+      `INSERT INTO Movements
+       (barcode, movementType, fromWarehouse, fromPosition, quantity, notes)
+       VALUES (?, 'consume', ?, ?, ?, ?)`,
+      [barcode, warehouseId, position, quantity, notes || null]
+    );
+
+    await conn.commit();
+
+    res.json({
+      success: true,
+      message: 'Materiál vyskladněn',
+      inventory: {
+        barcode: current.barcode,
+        warehouseId: current.warehouseId,
+        position: current.position,
+        qtyAvailable: newQty
       }
     });
   } catch (err) {

@@ -15,6 +15,10 @@ const movementRoutes = require('./routes/movements');
 const consumeRoutes = require('./routes/consume');
 const importRoutes = require('./routes/import');
 const healthRoutes = require('./routes/health');
+const homeRoutes = require('./routes/home');
+const warehouseRoutes = require('./routes/warehouses');
+const assemblyRoutes = require('./routes/assembly');
+const qualityRoutes = require('./routes/quality');
 
 const app = express();
 
@@ -62,6 +66,10 @@ app.use('/api/movements', movementRoutes);
 app.use('/api/consume', consumeRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/health', healthRoutes);
+app.use('/api/home', homeRoutes);
+app.use('/api/warehouses', warehouseRoutes);
+app.use('/api/assembly', assemblyRoutes);
+app.use('/api/quality', qualityRoutes);
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get('/api-docs.json', (req, res) => {

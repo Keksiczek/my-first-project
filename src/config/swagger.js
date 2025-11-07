@@ -20,7 +20,11 @@ const options = {
       { name: 'Inventory', description: 'Zásoby na skladě' },
       { name: 'Movements', description: 'Historie pohybů' },
       { name: 'Import', description: 'Import dat z CSV' },
-      { name: 'Health', description: 'Health-check endpoint' }
+      { name: 'Health', description: 'Health-check endpoint' },
+      { name: 'Home', description: 'Dashboard a přehled systému' },
+      { name: 'Warehouses', description: 'Správa skladů' },
+      { name: 'Assembly', description: 'Stromové zakázky a montáže' },
+      { name: 'Quality', description: 'Kontroly kvality' }
     ],
     components: {
       schemas: {

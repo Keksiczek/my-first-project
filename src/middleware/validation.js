@@ -112,6 +112,32 @@ const validateUpdateOrder = [
   handleValidationErrors
 ];
 
+const validateWarehouse = [
+  body('warehouseId')
+    .notEmpty().withMessage('ID skladu je povinné')
+    .isLength({ max: 50 }).withMessage('ID skladu může mít maximálně 50 znaků'),
+  body('warehouseName')
+    .notEmpty().withMessage('Název skladu je povinný')
+    .isLength({ max: 255 }).withMessage('Název skladu může mít maximálně 255 znaků'),
+  body('location')
+    .optional()
+    .isLength({ max: 255 }).withMessage('Umístění může mít maximálně 255 znaků'),
+  body('capacity')
+    .optional()
+    .isInt({ min: 0 }).withMessage('Kapacita musí být nezáporné celé číslo'),
+  body('notes')
+    .optional()
+    .isLength({ max: 1000 }).withMessage('Poznámka může mít maximálně 1000 znaků'),
+  handleValidationErrors
+];
+
+const validateWarehouseId = [
+  param('warehouseId')
+    .notEmpty().withMessage('ID skladu je povinné')
+    .isLength({ max: 50 }).withMessage('ID skladu může mít maximálně 50 znaků'),
+  handleValidationErrors
+];
+
 const validateCsvImport = [
   body('sapNumber')
     .notEmpty().withMessage('SAP číslo je povinné'),
@@ -154,5 +180,7 @@ module.exports = {
   validateCsvImport,
   validateGenerateBarcodes,
   validateOrderId,
-  validatePagination
+  validatePagination,
+  validateWarehouse,
+  validateWarehouseId
 };

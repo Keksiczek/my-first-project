@@ -108,3 +108,64 @@ src/
 - Inventář vynucuje unikátní kombinaci `(barcode, warehouseId, position)` a automaticky odstraňuje záznamy s nulovým množstvím.
 - Čárové kódy pro položky si zachovávají formát `MAT-YYMMDD-XXX` s kontrolou duplicit.
 - Všechny zápisové operace běží v transakcích (MySQL InnoDB).
+
+## 11. Autentizace a RBAC
+
+API používá JWT autentizaci s obnovovacími tokeny a řízením oprávnění na základě rolí (admin, operator, viewer).
+
+### Výchozí účty
+
+| Role    | Username  | Heslo     |
+| ------- | --------- | --------- |
+| admin   | `admin`   | `Admin123!` |
+| operator| `operator`| `Admin123!` |
+| viewer  | `viewer`  | `Admin123!` |
+
+### Endpoints
+
+| Metoda | Endpoint | Popis |
+| ------ | -------- | ----- |
+| POST | `/api/auth/login` | Přihlášení, vrací access i refresh token |
+| POST | `/api/auth/refresh` | Obnovení access tokenu pomocí refresh tokenu |
+| POST | `/api/auth/logout` | Revokace refresh tokenu |
+| GET  | `/api/auth/me` | Informace o aktuálně přihlášeném uživateli |
+| PUT  | `/api/auth/change-password` | Změna hesla a revokace všech refresh tokenů |
+| POST | `/api/auth/register` | Vytvoření nového uživatele (pouze role admin) |
+
+### Práce s tokeny
+
+1. **Login** – získáš dvojici `accessToken` (platnost 15 minut) a `refreshToken` (platnost 7 dní).
+2. **Access token** posílej v hlavičce `Authorization: Bearer <token>`.
+3. **Refresh token** ulož na klientovi a použij endpoint `/api/auth/refresh` pro získání nového access tokenu.
+4. **Logout** endpoint revokuje refresh token. Změna hesla revokuje všechny refresh tokeny uživatele.
+
+### Role a oprávnění
+
+- **admin** – plný přístup, správa uživatelů, mazání objednávek, změny skladů.
+- **operator** – vytváření/aktualizace objednávek, příjem, přesuny, spotřeba, importy, montáže a kontroly kvality.
+- **viewer** – pouze čtení všech přehledů a reportů.
+
+Všechny zapisovací endpointy jsou chráněny pomocí middleware `requireRole`, zatímco čtecí endpointy jsou dostupné pro všechny autentizované role.
+
+### CORS a konfigurace
+
+- `FRONTEND_URL` v `.env` určuje, odkud je povolen přístup k API.
+- `JWT_SECRET` a `JWT_REFRESH_SECRET` nastav bezpečné, unikátní hodnoty v produkci.
+
+### Testovací příklady
+
+```bash
+# Login
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"Admin123!"}'
+
+# Chráněný endpoint (např. seznam objednávek)
+curl -X GET http://localhost:3000/api/orders \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+
+# Obnovení tokenu
+curl -X POST http://localhost:3000/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken":"$REFRESH_TOKEN"}'
+```

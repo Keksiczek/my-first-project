@@ -7,6 +7,7 @@ const {
   validateWarehouseUpdate,
   validatePagination
 } = require('../middleware/validation');
+const { requireRole } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -53,7 +54,12 @@ const {
  *       409:
  *         description: Sklad se zadaným ID již existuje
  */
-router.post('/', validateWarehouse, warehouseController.createWarehouse);
+router.post(
+  '/',
+  requireRole(['admin']),
+  validateWarehouse,
+  warehouseController.createWarehouse
+);
 
 /**
  * @swagger
@@ -147,6 +153,7 @@ router.get('/:warehouseId', validateWarehouseId, warehouseController.getWarehous
  */
 router.put(
   '/:warehouseId',
+  requireRole(['admin']),
   validateWarehouseId,
   validateWarehouseUpdate,
   warehouseController.updateWarehouse
@@ -175,6 +182,7 @@ router.put(
  */
 router.post(
   '/:warehouseId/deactivate',
+  requireRole(['admin']),
   validateWarehouseId,
   warehouseController.deactivateWarehouse
 );

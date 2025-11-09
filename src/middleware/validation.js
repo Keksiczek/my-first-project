@@ -286,6 +286,7 @@ const validatePagination = [
 ];
 
 module.exports = {
+  handleValidationErrors,
   validateCreateOrder,
   validateReceive,
   validateMove,

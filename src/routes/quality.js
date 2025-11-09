@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const qualityController = require('../controllers/qualityController');
 const { validateQualityCheck, validateOrderId } = require('../middleware/validation');
+const { requireRole } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -46,7 +47,12 @@ const { validateQualityCheck, validateOrderId } = require('../middleware/validat
  *       404:
  *         description: Zakázka nenalezena
  */
-router.post('/:orderId', validateQualityCheck, qualityController.performQualityCheck);
+router.post(
+  '/:orderId',
+  requireRole(['admin', 'operator']),
+  validateQualityCheck,
+  qualityController.performQualityCheck
+);
 
 /**
  * @swagger

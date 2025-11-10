@@ -24,6 +24,12 @@ const options = {
       { name: 'Health', description: 'Health-check endpoint' },
       { name: 'Home', description: 'Dashboard a přehled systému' },
       { name: 'Warehouses', description: 'Správa skladů' },
+      { name: 'WarehousePositions', description: 'Skladové pozice a kapacity' },
+      { name: 'Production', description: 'Výrobní dávky a plánování' },
+      { name: 'ProductionStages', description: 'Řízení mezioperací' },
+      { name: 'SubProducts', description: 'Evidence mezivýrobků' },
+      { name: 'ProductionQuality', description: 'Kontroly kvality ve výrobě' },
+      { name: 'Exports', description: 'Exporty a reporting' },
       { name: 'Assembly', description: 'Stromové zakázky a montáže' },
       { name: 'Quality', description: 'Kontroly kvality' }
     ],

@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
-const { requireRole } = require('../middleware/auth');
 const {
   validateCreateOrder,
   validateOrderId,
@@ -53,12 +52,7 @@ const {
  *       400:
  *         description: Validační chyba
  */
-router.post(
-  '/create',
-  requireRole(['admin', 'operator']),
-  validateCreateOrder,
-  orderController.createOrder
-);
+router.post('/create', validateCreateOrder, orderController.createOrder);
 
 /**
  * @swagger
@@ -161,13 +155,7 @@ router.get('/:orderId', validateOrderId, orderController.getOrderById);
  *       404:
  *         description: Objednávka nenalezena
  */
-router.put(
-  '/:orderId',
-  requireRole(['admin', 'operator']),
-  validateOrderId,
-  validateUpdateOrder,
-  orderController.updateOrder
-);
+router.put('/:orderId', validateOrderId, validateUpdateOrder, orderController.updateOrder);
 
 /**
  * @swagger
@@ -189,12 +177,7 @@ router.put(
  *       404:
  *         description: Objednávka nenalezena
  */
-router.delete(
-  '/:orderId',
-  requireRole(['admin']),
-  validateOrderId,
-  orderController.deleteOrder
-);
+router.delete('/:orderId', validateOrderId, orderController.deleteOrder);
 
 /**
  * @swagger
@@ -217,11 +200,6 @@ router.delete(
  *       404:
  *         description: Objednávka nemá položky
  */
-router.post(
-  '/generate-barcodes',
-  requireRole(['admin', 'operator']),
-  validateGenerateBarcodes,
-  orderController.generateBarcodes
-);
+router.post('/generate-barcodes', validateGenerateBarcodes, orderController.generateBarcodes);
 
 module.exports = router;

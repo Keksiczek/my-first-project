@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const movementController = require('../controllers/movementController');
 const { validateConsume } = require('../middleware/validation');
-const { requireRole } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -34,11 +33,6 @@ const { requireRole } = require('../middleware/auth');
  *       404:
  *         description: Záznam ve skladu nenalezen
  */
-router.post(
-  '/',
-  requireRole(['admin', 'operator']),
-  validateConsume,
-  movementController.consumeMaterial
-);
+router.post('/', validateConsume, movementController.consumeMaterial);
 
 module.exports = router;

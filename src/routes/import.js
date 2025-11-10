@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const importController = require('../controllers/importController');
 const { validateCsvImport } = require('../middleware/validation');
-const { requireRole } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -30,11 +29,6 @@ const { requireRole } = require('../middleware/auth');
  *       400:
  *         description: Chyba při importu
  */
-router.post(
-  '/csv',
-  requireRole(['admin', 'operator']),
-  validateCsvImport,
-  importController.importCsv
-);
+router.post('/csv', validateCsvImport, importController.importCsv);
 
 module.exports = router;

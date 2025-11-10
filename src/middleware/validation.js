@@ -62,8 +62,7 @@ const validateReceive = [
   body('quantityReceived')
     .isInt({ min: 1 }).withMessage('Přijaté množství musí být kladné celé číslo'),
   body('warehouseId')
-    .notEmpty().withMessage('ID skladu je povinné')
-    .isLength({ max: 50 }).withMessage('ID skladu může mít maximálně 50 znaků'),
+    .isInt({ min: 1 }).withMessage('ID skladu musí být kladné číslo'),
   body('position')
     .notEmpty().withMessage('Pozice je povinná')
     .isLength({ max: 50 }).withMessage('Pozice může mít maximálně 50 znaků'),
@@ -79,8 +78,7 @@ const validateMove = [
     .matches(/^MAT-\d{6}-\d{3}$/).withMessage('Čárový kód musí být ve formátu MAT-YYMMDD-XXX')
     .isLength({ max: 50 }).withMessage('Čárový kód může mít maximálně 50 znaků'),
   body('warehouseId')
-    .notEmpty().withMessage('ID skladu je povinné')
-    .isLength({ max: 50 }).withMessage('ID skladu může mít maximálně 50 znaků'),
+    .isInt({ min: 1 }).withMessage('ID skladu musí být kladné číslo'),
   body('position')
     .notEmpty().withMessage('Pozice je povinná')
     .isLength({ max: 50 }).withMessage('Pozice může mít maximálně 50 znaků'),
@@ -98,8 +96,7 @@ const validateConsume = [
     .matches(/^MAT-\d{6}-\d{3}$/).withMessage('Čárový kód musí být ve formátu MAT-YYMMDD-XXX')
     .isLength({ max: 50 }).withMessage('Čárový kód může mít maximálně 50 znaků'),
   body('warehouseId')
-    .notEmpty().withMessage('ID skladu je povinné')
-    .isLength({ max: 50 }).withMessage('ID skladu může mít maximálně 50 znaků'),
+    .isInt({ min: 1 }).withMessage('ID skladu musí být kladné číslo'),
   body('position')
     .notEmpty().withMessage('Pozice je povinná')
     .isLength({ max: 50 }).withMessage('Pozice může mít maximálně 50 znaků'),
@@ -286,7 +283,6 @@ const validatePagination = [
 ];
 
 module.exports = {
-  handleValidationErrors,
   validateCreateOrder,
   validateReceive,
   validateMove,

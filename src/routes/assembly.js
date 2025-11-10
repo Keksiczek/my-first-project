@@ -8,7 +8,6 @@ const {
   validateOrderId,
   validateAssemblyAction
 } = require('../middleware/validation');
-const { requireRole } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -54,12 +53,7 @@ const { requireRole } = require('../middleware/auth');
  *       409:
  *         description: SAP číslo již existuje
  */
-router.post(
-  '/',
-  requireRole(['admin', 'operator']),
-  validateAssemblyCreate,
-  assemblyController.createAssembly
-);
+router.post('/', validateAssemblyCreate, assemblyController.createAssembly);
 
 /**
  * @swagger
@@ -104,7 +98,6 @@ router.post(
  */
 router.post(
   '/:orderId/components',
-  requireRole(['admin', 'operator']),
   validateAssemblyComponent,
   assemblyController.addComponentToAssembly
 );
@@ -129,7 +122,6 @@ router.post(
  */
 router.delete(
   '/components/:componentId',
-  requireRole(['admin']),
   validateComponentId,
   assemblyController.removeComponentFromAssembly
 );
@@ -187,7 +179,6 @@ router.get('/:orderId/tree', validateOrderId, assemblyController.getAssemblyTree
  */
 router.post(
   '/:orderId/start',
-  requireRole(['admin', 'operator']),
   validateAssemblyAction,
   assemblyController.startAssembly
 );
@@ -225,7 +216,6 @@ router.post(
  */
 router.post(
   '/:orderId/complete',
-  requireRole(['admin', 'operator']),
   validateAssemblyAction,
   assemblyController.completeAssembly
 );

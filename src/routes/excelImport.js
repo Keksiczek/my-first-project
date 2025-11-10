@@ -1,7 +1,6 @@
 const express = require('express');
 const multer = require('multer');
 const excelImportController = require('../controllers/excelImportController');
-const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -38,12 +37,7 @@ const upload = multer({
  *       200:
  *         description: Import úspěšný
  */
-router.post(
-  '/orders',
-  requireRole(['admin', 'operator']),
-  upload.single('file'),
-  excelImportController.importOrdersFromExcel
-);
+router.post('/orders', upload.single('file'), excelImportController.importOrdersFromExcel);
 
 /**
  * @swagger
@@ -72,11 +66,6 @@ router.post(
  *       200:
  *         description: Import úspěšný
  */
-router.post(
-  '/items',
-  requireRole(['admin', 'operator']),
-  upload.single('file'),
-  excelImportController.importItemsFromExcel
-);
+router.post('/items', upload.single('file'), excelImportController.importItemsFromExcel);
 
 module.exports = router;

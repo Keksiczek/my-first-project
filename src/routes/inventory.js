@@ -3,7 +3,6 @@ const router = express.Router();
 const inventoryController = require('../controllers/inventoryController');
 const movementController = require('../controllers/movementController');
 const { validateMove, validatePagination } = require('../middleware/validation');
-const { requireRole } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -68,11 +67,6 @@ router.get('/', validatePagination, inventoryController.getInventory);
  *       404:
  *         description: Položka nenalezena
  */
-router.post(
-  '/move',
-  requireRole(['admin', 'operator']),
-  validateMove,
-  movementController.moveMaterial
-);
+router.post('/move', validateMove, movementController.moveMaterial);
 
 module.exports = router;

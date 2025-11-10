@@ -1,69 +1,61 @@
-const jwt = require('jsonwebtoken');
-const logger = require('../config/logger');
-
-exports.authenticateToken = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      error: 'Přístup zamítnut. Chybí autentizační token.'
-    });
-  }
-
-  try {
-    const user = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = user;
-    next();
-  } catch (error) {
-    logger.warn('Neplatný JWT token', { error: error.message });
-    return res.status(403).json({
-      success: false,
-      error: 'Neplatný nebo expirovaný token'
-    });
-  }
+const ROLE_PRIORITY = {
+  admin: 4,
+  operator: 3,
+  operator_full: 3,
+  operator_limited: 2,
+  viewer: 1
 };
 
-exports.requireRole = (allowedRoles) => {
+exports.resolveUser = (req, _res, next) => {
+  if (!req.user) {
+    const roleHeader = req.headers['x-user-role'];
+    const idHeader = req.headers['x-user-id'];
+    if (roleHeader) {
+      req.user = {
+        userId: idHeader ? Number(idHeader) || null : null,
+        role: roleHeader
+      };
+    }
+  }
+  next();
+};
+
+exports.authorizeRoles = (...allowedRoles) => {
+  const allowed = new Set(allowedRoles);
+
   return (req, res, next) => {
-    if (!req.user) {
+    const user = req.user;
+
+    if (!user || !user.role) {
       return res.status(401).json({
         success: false,
-        error: 'Uživatel není autentizován'
+        message: 'Neautorizovaný přístup – chybí role uživatele'
       });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
-      logger.warn('Přístup zamítnut - nedostatečná oprávnění', {
-        userId: req.user.userId,
-        role: req.user.role,
-        required: allowedRoles
-      });
-      return res.status(403).json({
-        success: false,
-        error: 'Nedostatečná oprávnění pro tuto akci'
-      });
+    if (allowed.has('admin') && user.role === 'admin') {
+      return next();
     }
 
-    next();
+    if (allowed.has(user.role)) {
+      return next();
+    }
+
+    // Operátor může mít alias operator_full
+    if (user.role === 'operator_full' && allowed.has('operator')) {
+      return next();
+    }
+
+    const requiredPriority = Math.max(...[...allowed].map((role) => ROLE_PRIORITY[role] || 0));
+    const userPriority = ROLE_PRIORITY[user.role] || 0;
+
+    if (userPriority >= requiredPriority && requiredPriority > 0) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: 'Uživatel nemá dostatečná oprávnění pro tuto operaci'
+    });
   };
-};
-
-exports.optionalAuth = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return next();
-  }
-
-  try {
-    const user = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = user;
-  } catch (error) {
-    logger.debug('Neplatný optional auth token', { error: error.message });
-  }
-
-  next();
 };

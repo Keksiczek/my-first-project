@@ -1,10 +1,18 @@
-// ZMĚNA: Controller pro správu skladů s transakcemi a logováním
 const pool = require('../config/db');
 const { getPaginationParams, buildPaginatedResponse } = require('../utils/pagination');
 const logger = require('../config/logger');
 
+async function ensureWarehouseExists (warehouseId, executor = pool) {
+  const runner = executor.query ? executor : pool;
+  const [rows] = await runner.query(
+    'SELECT * FROM warehouses WHERE warehouseId = ?',
+    [warehouseId]
+  );
+  return rows[0];
+}
+
 exports.createWarehouse = async (req, res, next) => {
-  const { warehouseId, warehouseName, location, capacity, notes } = req.body;
+  const { name, type, location, capacity } = req.body;
 
   const conn = await pool.getConnection();
 
@@ -12,37 +20,34 @@ exports.createWarehouse = async (req, res, next) => {
     await conn.beginTransaction();
 
     const [existing] = await conn.query(
-      'SELECT warehouseId FROM Warehouses WHERE warehouseId = ?',
-      [warehouseId]
+      'SELECT warehouseId FROM warehouses WHERE name = ?',
+      [name]
     );
 
     if (existing.length > 0) {
       await conn.rollback();
       return res.status(409).json({
         success: false,
-        message: 'Sklad s tímto ID již existuje'
+        message: 'Sklad se zadaným názvem již existuje'
       });
     }
 
-    await conn.query(
-      `INSERT INTO Warehouses (warehouseId, warehouseName, location, capacity, notes)
-       VALUES (?, ?, ?, ?, ?)` ,
-      [warehouseId, warehouseName, location || null, capacity || null, notes || null]
+    const [result] = await conn.query(
+      `INSERT INTO warehouses (name, type, location, capacity)
+       VALUES (?, ?, ?, ?)` ,
+      [name, type || 'Main', location || null, capacity || null]
     );
 
     await conn.commit();
 
-    const [rows] = await conn.query(
-      'SELECT * FROM Warehouses WHERE warehouseId = ?',
-      [warehouseId]
-    );
+    const warehouse = await ensureWarehouseExists(result.insertId);
 
-    logger.info('Warehouse created', { warehouseId });
+    logger.info('Warehouse created', { warehouseId: result.insertId, name });
 
     return res.status(201).json({
       success: true,
       message: 'Sklad vytvořen',
-      data: rows[0]
+      data: warehouse
     });
   } catch (error) {
     await conn.rollback();
@@ -53,31 +58,50 @@ exports.createWarehouse = async (req, res, next) => {
 };
 
 exports.getWarehouses = async (req, res, next) => {
-  const { page, limit, active } = req.query;
+  const { page, limit, type, isActive, search } = req.query;
   const { limit: safeLimit, offset, page: safePage } = getPaginationParams(page, limit);
 
   try {
-    let whereClause = 'WHERE 1 = 1';
+    const filters = [];
+    const aliasFilters = [];
     const params = [];
 
-    if (typeof active !== 'undefined') {
-      whereClause += ' AND isActive = ?';
-      params.push(active === 'true' ? 1 : 0);
+    if (type) {
+      filters.push('type = ?');
+      aliasFilters.push('w.type = ?');
+      params.push(type);
     }
 
-    const countSql = `SELECT COUNT(*) AS total FROM Warehouses ${whereClause}`;
-    const [countRows] = await pool.query(countSql, params);
-    const total = countRows[0]?.total || 0;
+    if (typeof isActive !== 'undefined') {
+      filters.push('isActive = ?');
+      aliasFilters.push('w.isActive = ?');
+      params.push(isActive === 'true' ? 1 : 0);
+    }
 
-    const dataSql = `
-      SELECT warehouseId, warehouseName, location, capacity, isActive, dateCreated, notes
-      FROM Warehouses
-      ${whereClause}
-      ORDER BY warehouseName
-      LIMIT ? OFFSET ?
-    `;
+    if (search) {
+      filters.push('(name LIKE ? OR location LIKE ? )');
+      aliasFilters.push('(w.name LIKE ? OR w.location LIKE ? )');
+      params.push(`%${search}%`, `%${search}%`);
+    }
 
-    const [rows] = await pool.query(dataSql, [...params, safeLimit, offset]);
+    const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+    const aliasWhere = aliasFilters.length > 0 ? `WHERE ${aliasFilters.join(' AND ')}` : '';
+
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM warehouses ${where}`,
+      params
+    );
+
+    const [rows] = await pool.query(
+      `SELECT w.*, COALESCE(SUM(i.qtyAvailable), 0) AS stockQuantity
+         FROM warehouses w
+         LEFT JOIN Inventory i ON i.warehouseId = w.warehouseId
+         ${aliasWhere}
+         GROUP BY w.warehouseId
+         ORDER BY w.name
+         LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
+    );
 
     res.json(buildPaginatedResponse(rows, total, safePage, safeLimit));
   } catch (error) {
@@ -89,20 +113,26 @@ exports.getWarehouseById = async (req, res, next) => {
   const { warehouseId } = req.params;
 
   try {
-    const [warehouseRows] = await pool.query(
-      'SELECT * FROM Warehouses WHERE warehouseId = ?',
-      [warehouseId]
-    );
+    const warehouse = await ensureWarehouseExists(warehouseId);
 
-    if (warehouseRows.length === 0) {
+    if (!warehouse) {
       return res.status(404).json({
         success: false,
         message: 'Sklad nenalezen'
       });
     }
 
-    const [inventoryRows] = await pool.query(
-      `SELECT i.barcode, oi.itemName, i.position, i.qtyAvailable, i.dateUpdated
+    const [positions] = await pool.query(
+      `SELECT positionId, positionName, description, maxCapacity, currentContent, lastUpdated
+         FROM warehousePositions
+         WHERE warehouseId = ?
+         ORDER BY positionName`,
+      [warehouseId]
+    );
+
+    const [inventory] = await pool.query(
+      `SELECT i.inventoryId, i.barcode, oi.itemName, i.position, i.qtyAvailable,
+              i.dateUpdated
          FROM Inventory i
          LEFT JOIN OrderItems oi ON oi.barcode = i.barcode
          WHERE i.warehouseId = ?
@@ -113,8 +143,9 @@ exports.getWarehouseById = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        warehouse: warehouseRows[0],
-        inventory: inventoryRows
+        warehouse,
+        positions,
+        inventory
       }
     });
   } catch (error) {
@@ -124,19 +155,16 @@ exports.getWarehouseById = async (req, res, next) => {
 
 exports.updateWarehouse = async (req, res, next) => {
   const { warehouseId } = req.params;
-  const { warehouseName, location, capacity, notes, isActive } = req.body;
+  const { name, type, location, capacity, isActive } = req.body;
 
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    const [existingRows] = await conn.query(
-      'SELECT * FROM Warehouses WHERE warehouseId = ?',
-      [warehouseId]
-    );
+    const warehouse = await ensureWarehouseExists(warehouseId, conn);
 
-    if (existingRows.length === 0) {
+    if (!warehouse) {
       await conn.rollback();
       return res.status(404).json({
         success: false,
@@ -147,9 +175,13 @@ exports.updateWarehouse = async (req, res, next) => {
     const updates = [];
     const params = [];
 
-    if (typeof warehouseName !== 'undefined') {
-      updates.push('warehouseName = ?');
-      params.push(warehouseName);
+    if (typeof name !== 'undefined') {
+      updates.push('name = ?');
+      params.push(name);
+    }
+    if (typeof type !== 'undefined') {
+      updates.push('type = ?');
+      params.push(type);
     }
     if (typeof location !== 'undefined') {
       updates.push('location = ?');
@@ -158,10 +190,6 @@ exports.updateWarehouse = async (req, res, next) => {
     if (typeof capacity !== 'undefined') {
       updates.push('capacity = ?');
       params.push(capacity);
-    }
-    if (typeof notes !== 'undefined') {
-      updates.push('notes = ?');
-      params.push(notes || null);
     }
     if (typeof isActive !== 'undefined') {
       updates.push('isActive = ?');
@@ -172,30 +200,27 @@ exports.updateWarehouse = async (req, res, next) => {
       await conn.rollback();
       return res.status(400).json({
         success: false,
-        message: 'Žádná data k aktualizaci'
+        message: 'Nejsou uvedena žádná data pro aktualizaci'
       });
     }
 
     params.push(warehouseId);
 
     await conn.query(
-      `UPDATE Warehouses SET ${updates.join(', ')} WHERE warehouseId = ?`,
+      `UPDATE warehouses SET ${updates.join(', ')}, updatedAt = CURRENT_TIMESTAMP WHERE warehouseId = ?`,
       params
     );
 
     await conn.commit();
 
-    const [updatedRows] = await conn.query(
-      'SELECT * FROM Warehouses WHERE warehouseId = ?',
-      [warehouseId]
-    );
+    const updatedWarehouse = await ensureWarehouseExists(warehouseId);
 
     logger.info('Warehouse updated', { warehouseId });
 
     res.json({
       success: true,
       message: 'Sklad aktualizován',
-      data: updatedRows[0]
+      data: updatedWarehouse
     });
   } catch (error) {
     await conn.rollback();
@@ -213,34 +238,28 @@ exports.deactivateWarehouse = async (req, res, next) => {
   try {
     await conn.beginTransaction();
 
-    const [warehouseRows] = await conn.query(
-      'SELECT * FROM Warehouses WHERE warehouseId = ?',
-      [warehouseId]
-    );
+    const warehouse = await ensureWarehouseExists(warehouseId);
 
-    if (warehouseRows.length === 0) {
+    if (!warehouse) {
       await conn.rollback();
-      return res.status(404).json({
-        success: false,
-        message: 'Sklad nenalezen'
-      });
+      return res.status(404).json({ success: false, message: 'Sklad nenalezen' });
     }
 
-    const [inventoryRows] = await conn.query(
-      'SELECT SUM(qtyAvailable) AS totalQty FROM Inventory WHERE warehouseId = ?',
+    const [[{ itemCount }]] = await conn.query(
+      'SELECT COUNT(*) AS itemCount FROM Inventory WHERE warehouseId = ? AND qtyAvailable > 0',
       [warehouseId]
     );
 
-    if ((inventoryRows[0]?.totalQty || 0) > 0) {
+    if (itemCount > 0) {
       await conn.rollback();
       return res.status(400).json({
         success: false,
-        message: 'Sklad nelze deaktivovat, protože obsahuje materiál'
+        message: 'Sklad obsahuje materiál a nelze jej deaktivovat'
       });
     }
 
     await conn.query(
-      'UPDATE Warehouses SET isActive = 0 WHERE warehouseId = ?',
+      'UPDATE warehouses SET isActive = 0, updatedAt = CURRENT_TIMESTAMP WHERE warehouseId = ?',
       [warehouseId]
     );
 
@@ -248,14 +267,114 @@ exports.deactivateWarehouse = async (req, res, next) => {
 
     logger.info('Warehouse deactivated', { warehouseId });
 
-    res.json({
-      success: true,
-      message: 'Sklad deaktivován'
-    });
+    res.json({ success: true, message: 'Sklad deaktivován' });
   } catch (error) {
     await conn.rollback();
     next(error);
   } finally {
     conn.release();
+  }
+};
+
+exports.getWarehousePositions = async (req, res, next) => {
+  const { warehouseId } = req.query;
+  const { page, limit } = req.query;
+  const { limit: safeLimit, offset, page: safePage } = getPaginationParams(page, limit);
+
+  try {
+    const filters = [];
+    const params = [];
+
+    if (warehouseId) {
+      filters.push('wp.warehouseId = ?');
+      params.push(warehouseId);
+    }
+
+    const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM warehousePositions wp ${where}`,
+      params
+    );
+
+    const [rows] = await pool.query(
+      `SELECT wp.*, w.name AS warehouseName
+         FROM warehousePositions wp
+         JOIN warehouses w ON w.warehouseId = wp.warehouseId
+         ${where}
+         ORDER BY w.name, wp.positionName
+         LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
+    );
+
+    res.json(buildPaginatedResponse(rows, total, safePage, safeLimit));
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.createWarehousePosition = async (req, res, next) => {
+  const { warehouseId, positionName, description, maxCapacity } = req.body;
+
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const warehouse = await ensureWarehouseExists(warehouseId);
+    if (!warehouse) {
+      await conn.rollback();
+      return res.status(404).json({ success: false, message: 'Sklad nenalezen' });
+    }
+
+    const [existing] = await conn.query(
+      `SELECT positionId FROM warehousePositions WHERE warehouseId = ? AND positionName = ?`,
+      [warehouseId, positionName]
+    );
+
+    if (existing.length > 0) {
+      await conn.rollback();
+      return res.status(409).json({ success: false, message: 'Pozice již existuje' });
+    }
+
+    const [result] = await conn.query(
+      `INSERT INTO warehousePositions (warehouseId, positionName, description, maxCapacity)
+       VALUES (?, ?, ?, ?)` ,
+      [warehouseId, positionName, description || null, maxCapacity || null]
+    );
+
+    await conn.commit();
+
+    const [positionRows] = await pool.query(
+      'SELECT * FROM warehousePositions WHERE positionId = ?',
+      [result.insertId]
+    );
+
+    logger.info('Warehouse position created', { warehouseId, positionId: result.insertId });
+
+    res.status(201).json({ success: true, data: positionRows[0] });
+  } catch (error) {
+    await conn.rollback();
+    next(error);
+  } finally {
+    conn.release();
+  }
+};
+
+exports.getVacantPositions = async (req, res, next) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT wp.positionId, wp.positionName, wp.maxCapacity, wp.currentContent,
+              w.warehouseId, w.name AS warehouseName
+         FROM warehousePositions wp
+         JOIN warehouses w ON w.warehouseId = wp.warehouseId
+         WHERE (wp.currentContent IS NULL OR wp.currentContent = '')
+            OR (wp.maxCapacity IS NOT NULL AND wp.maxCapacity > 0)
+         ORDER BY w.name, wp.positionName`
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    next(error);
   }
 };

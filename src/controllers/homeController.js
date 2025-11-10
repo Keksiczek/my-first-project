@@ -14,7 +14,7 @@ exports.getDashboard = async (req, res, next) => {
     const [warehouseStats] = await pool.query(
       `SELECT COUNT(*) AS totalWarehouses,
               SUM(CASE WHEN isActive = 1 THEN 1 ELSE 0 END) AS activeWarehouses
-         FROM Warehouses`
+         FROM warehouses`
     );
 
     const [inventoryStats] = await pool.query(
@@ -31,9 +31,15 @@ exports.getDashboard = async (req, res, next) => {
 
     const [qualityStats] = await pool.query(
       `SELECT result, COUNT(*) AS count
-         FROM QualityChecks
-         WHERE dateChecked >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+         FROM qualityChecks
+         WHERE checkedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
          GROUP BY result`
+    );
+
+    const [productionStats] = await pool.query(
+      `SELECT status, COUNT(*) AS count
+         FROM production
+         GROUP BY status`
     );
 
     const [activeOrders] = await pool.query(
@@ -56,6 +62,7 @@ exports.getDashboard = async (req, res, next) => {
         inventory: inventoryStats[0] || { totalItems: 0, totalQuantity: 0 },
         recentMovements,
         quality: qualityStats,
+        production: productionStats,
         timestamp: new Date().toISOString()
       }
     });

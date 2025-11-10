@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
+
 const warehouseController = require('../controllers/warehouseController');
+const { resolveUser, authorizeRoles } = require('../middleware/auth');
 const {
-  validateWarehouse,
-  validateWarehouseId,
+  validateWarehouseCreate,
   validateWarehouseUpdate,
-  validatePagination
-} = require('../middleware/validation');
-const { requireRole } = require('../middleware/auth');
+  validateWarehouseIdParam,
+  validateWarehouseListQuery
+} = require('../middleware/warehouseValidation');
 
 /**
  * @swagger
@@ -19,53 +20,8 @@ const { requireRole } = require('../middleware/auth');
 /**
  * @swagger
  * /api/warehouses:
- *   post:
- *     summary: Vytvoření nového skladu
- *     tags: [Warehouses]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [warehouseId, warehouseName]
- *             properties:
- *               warehouseId:
- *                 type: string
- *                 maxLength: 50
- *                 example: "SKLAD-C"
- *               warehouseName:
- *                 type: string
- *                 maxLength: 255
- *                 example: "Externí sklad"
- *               location:
- *                 type: string
- *                 maxLength: 255
- *                 example: "Hala 3"
- *               capacity:
- *                 type: integer
- *                 example: 2500
- *               notes:
- *                 type: string
- *                 maxLength: 1000
- *     responses:
- *       201:
- *         description: Sklad byl vytvořen
- *       409:
- *         description: Sklad se zadaným ID již existuje
- */
-router.post(
-  '/',
-  requireRole(['admin']),
-  validateWarehouse,
-  warehouseController.createWarehouse
-);
-
-/**
- * @swagger
- * /api/warehouses:
  *   get:
- *     summary: Přehled skladů
+ *     summary: Přehled všech skladů s agregovanou kapacitou
  *     tags: [Warehouses]
  *     parameters:
  *       - in: query
@@ -79,36 +35,92 @@ router.post(
  *           type: integer
  *         description: Počet záznamů na stránku (max 100)
  *       - in: query
- *         name: active
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [Main, Buffer, WIP, Finished]
+ *       - in: query
+ *         name: isActive
  *         schema:
  *           type: boolean
- *         description: Filtr podle aktivních/neaktivních skladů
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
  *         description: Paginovaný seznam skladů
  */
-router.get('/', validatePagination, warehouseController.getWarehouses);
+router.get(
+  '/',
+  resolveUser,
+  authorizeRoles('admin', 'operator', 'operator_limited', 'viewer'),
+  validateWarehouseListQuery,
+  warehouseController.getWarehouses
+);
 
 /**
  * @swagger
  * /api/warehouses/{warehouseId}:
  *   get:
- *     summary: Detail skladu včetně inventáře
+ *     summary: Detail skladu včetně pozic a inventáře
  *     tags: [Warehouses]
  *     parameters:
  *       - in: path
  *         name: warehouseId
  *         required: true
  *         schema:
- *           type: string
- *           maxLength: 50
+ *           type: integer
  *     responses:
  *       200:
- *         description: Detail skladu a seznam materiálu
+ *         description: Detail skladu
  *       404:
  *         description: Sklad nenalezen
  */
-router.get('/:warehouseId', validateWarehouseId, warehouseController.getWarehouseById);
+router.get(
+  '/:warehouseId',
+  resolveUser,
+  authorizeRoles('admin', 'operator', 'operator_limited', 'viewer'),
+  validateWarehouseIdParam,
+  warehouseController.getWarehouseById
+);
+
+/**
+ * @swagger
+ * /api/warehouses:
+ *   post:
+ *     summary: Vytvoření nového skladu
+ *     tags: [Warehouses]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               type:
+ *                 type: string
+ *                 enum: [Main, Buffer, WIP, Finished]
+ *               location:
+ *                 type: string
+ *               capacity:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: Sklad byl vytvořen
+ *       409:
+ *         description: Duplicitní záznam
+ */
+router.post(
+  '/',
+  resolveUser,
+  authorizeRoles('admin'),
+  validateWarehouseCreate,
+  warehouseController.createWarehouse
+);
 
 /**
  * @swagger
@@ -121,8 +133,7 @@ router.get('/:warehouseId', validateWarehouseId, warehouseController.getWarehous
  *         name: warehouseId
  *         required: true
  *         schema:
- *           type: string
- *           maxLength: 50
+ *           type: integer
  *     requestBody:
  *       required: true
  *       content:
@@ -130,60 +141,59 @@ router.get('/:warehouseId', validateWarehouseId, warehouseController.getWarehous
  *           schema:
  *             type: object
  *             properties:
- *               warehouseName:
+ *               name:
  *                 type: string
- *                 maxLength: 255
+ *               type:
+ *                 type: string
+ *                 enum: [Main, Buffer, WIP, Finished]
  *               location:
  *                 type: string
- *                 maxLength: 255
  *               capacity:
  *                 type: integer
- *               notes:
- *                 type: string
- *                 maxLength: 1000
  *               isActive:
  *                 type: boolean
  *     responses:
  *       200:
- *         description: Sklad byl aktualizován
+ *         description: Sklad aktualizován
  *       400:
- *         description: Chybí data pro aktualizaci
+ *         description: Neplatná data
  *       404:
  *         description: Sklad nenalezen
  */
 router.put(
   '/:warehouseId',
-  requireRole(['admin']),
-  validateWarehouseId,
+  resolveUser,
+  authorizeRoles('admin'),
+  validateWarehouseIdParam,
   validateWarehouseUpdate,
   warehouseController.updateWarehouse
 );
 
 /**
  * @swagger
- * /api/warehouses/{warehouseId}/deactivate:
- *   post:
- *     summary: Deaktivace prázdného skladu
+ * /api/warehouses/{warehouseId}:
+ *   delete:
+ *     summary: Deaktivace skladu bez zásob
  *     tags: [Warehouses]
  *     parameters:
  *       - in: path
  *         name: warehouseId
  *         required: true
  *         schema:
- *           type: string
- *           maxLength: 50
+ *           type: integer
  *     responses:
  *       200:
  *         description: Sklad deaktivován
  *       400:
- *         description: Sklad nelze deaktivovat, protože obsahuje materiál
+ *         description: Sklad obsahuje zásoby
  *       404:
  *         description: Sklad nenalezen
  */
-router.post(
-  '/:warehouseId/deactivate',
-  requireRole(['admin']),
-  validateWarehouseId,
+router.delete(
+  '/:warehouseId',
+  resolveUser,
+  authorizeRoles('admin'),
+  validateWarehouseIdParam,
   warehouseController.deactivateWarehouse
 );
 

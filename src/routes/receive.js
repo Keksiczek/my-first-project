@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const receiveController = require('../controllers/receiveController');
 const { validateReceive } = require('../middleware/validation');
-const { requireRole } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -34,12 +33,7 @@ const { requireRole } = require('../middleware/auth');
  *       404:
  *         description: Položka nenalezena
  */
-router.post(
-  '/',
-  requireRole(['admin', 'operator']),
-  validateReceive,
-  receiveController.receiveFull
-);
+router.post('/', validateReceive, receiveController.receiveFull);
 
 /**
  * @swagger
@@ -71,11 +65,6 @@ router.post(
  *       404:
  *         description: Položka nenalezena
  */
-router.post(
-  '/partial',
-  requireRole(['admin', 'operator']),
-  validateReceive,
-  receiveController.receivePartial
-);
+router.post('/partial', validateReceive, receiveController.receivePartial);
 
 module.exports = router;

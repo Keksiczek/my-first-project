@@ -69,9 +69,41 @@ JSON specifikaci lze získat přes `http://localhost:3000/api-docs.json`.
 | POST | `/api/consume` | Výdej/spotřeba materiálu |
 | GET | `/api/inventory` | Paginovaný přehled skladu |
 | GET | `/api/movements/{barcode}` | Historie pohybů daného materiálu |
+| GET | `/api/warehouses` | Multi-skladová evidence a kapacity |
+| POST | `/api/warehouses` | Vytvoření / editace skladů (admin) |
+| GET | `/api/warehouse-positions` | Přehled pozic v jednotlivých skladech |
+| GET | `/api/production` | Výrobní dávky s filtry a paginací |
+| POST | `/api/production/start` | Zahájení výrobní dávky (operator, admin) |
+| POST | `/api/production/stage/{stageId}/start` | Workflow mezioperací (start/pause/resume/complete) |
+| GET | `/api/subproducts` | Evidence mezivýrobků a jejich stavů |
+| POST | `/api/subproducts` | Ruční založení mezivýrobku |
+| POST | `/api/subproducts/{id}/move` | Přesun mezivýrobku mezi sklady/stadii |
+| POST | `/api/quality-checks` | Záznam kontroly kvality mezioperace |
+| GET | `/api/quality-checks/report` | Souhrnný report výsledků |
+| GET | `/api/export/inventory` | Export inventáře do CSV |
+| POST | `/api/export/custom` | Vlastní export s filtry |
 | GET | `/api/health` | Health check API a databáze |
 
-## 7. CSV import
+## 7. Výroba, sklady a kvalita
+
+- **Multi-sklady** – tabulka `warehouses` s pozicemi, kapacitami a statistikami. Endpointy `/api/warehouses` a `/api/warehouse-positions` podporují paginaci, filtrování a deaktivaci prázdných skladů.
+- **Výrobní dávky** – `/api/production` spravuje plánování, stavové přechody a návazné mezioperace. Akce mezioperací (`start/pause/resume/complete`) jsou auditovány do tabulky logů.
+- **Meziprodukty** – `/api/subproducts` eviduje díly vznikající během výroby, včetně aktuálního stadia a umístění na skladu.
+- **Kontroly kvality** – `/api/quality-checks` zapisují výsledky mezioperací a aktualizují metriky přímo u jednotlivých operací. Souhrnný report je dostupný přes `/api/quality-checks/report`.
+- **Exporty** – `/api/export/*` poskytují CSV export inventáře, výroby a sledovatelnosti. Vlastní export (`POST /api/export/custom`) umožňuje filtrovat tři základní resource.
+
+### Role a oprávnění (RBAC)
+
+| Role | Popis | Povolené akce |
+| ---- | ----- | ------------- |
+| `admin` | plný přístup | správa skladů, výroby, exportů, kvality |
+| `operator` / `operator_full` | výrobní operátor | start/stop výrobních dávek, mezioperací, tvorba kvality, meziproduktů |
+| `operator_limited` | skladový operátor | pouze příjem/výdej a čtení přehledů |
+| `viewer` | náhled | pouze čtení (dashboard, exporty) |
+
+Pro testování lze roli předat přes HTTP hlavičku `x-user-role` (a volitelně `x-user-id`). Produkční nasazení očekává, že autentizační middleware přiřadí `req.user.role`.
+
+## 8. CSV import
 
 CSV soubor musí obsahovat hlavičku: `itemName,quantity,dimension,material,position`.
 Parser podporuje čárku, středník i tabulátor jako oddělovač a zvládá uvozovky i BOM.
@@ -83,14 +115,14 @@ itemName,quantity,dimension,material,position
 "Šroub M6",50,"M6x20","Ocel",5661
 ```
 
-## 8. Skripty
+## 9. Skripty
 
 - `npm start` – spuštění serveru
 - `npm run dev` – vývojový režim s automatickým restartem
 - `npm run lint` – kontrola kódu ESLintem
 - `npm run lint:fix` – automatická oprava formátování
 
-## 9. Struktura projektu
+## 10. Struktura projektu
 
 ```
 src/
@@ -102,9 +134,18 @@ src/
   utils/         # pomocné funkce (paginace, generování kódů)
 ```
 
-## 10. Další poznámky
+## 11. Další poznámky
 
 - Statusy jsou sjednoceny na hodnoty `pending`, `partial`, `complete`.
 - Inventář vynucuje unikátní kombinaci `(barcode, warehouseId, position)` a automaticky odstraňuje záznamy s nulovým množstvím.
 - Čárové kódy pro položky si zachovávají formát `MAT-YYMMDD-XXX` s kontrolou duplicit.
 - Všechny zápisové operace běží v transakcích (MySQL InnoDB).
+
+## 12. Testy
+
+Ukázkové unit testy (Mocha + Chai) pokrývají logiku servisní vrstvy výroby (start dávky, přechody mezioperací, kontroly kvality, tvorba mezivýrobků).
+Před spuštěním testů se ujisti, že máš nainstalované i vývojové závislosti (např. `npm install --include=dev`).
+
+```
+npm test
+```

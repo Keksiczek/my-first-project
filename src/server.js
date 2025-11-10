@@ -18,6 +18,11 @@ const excelImportRoutes = require('./routes/excelImport');
 const healthRoutes = require('./routes/health');
 const homeRoutes = require('./routes/home');
 const warehouseRoutes = require('./routes/warehouses');
+const warehousePositionsRoutes = require('./routes/warehousePositions');
+const productionRoutes = require('./routes/production');
+const subProductRoutes = require('./routes/subproducts');
+const qualityChecksRoutes = require('./routes/qualityChecks');
+const exportRoutes = require('./routes/export');
 const assemblyRoutes = require('./routes/assembly');
 const qualityRoutes = require('./routes/quality');
 
@@ -70,6 +75,11 @@ app.use('/api/excel-import', importLimiter, excelImportRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/warehouses', warehouseRoutes);
+app.use('/api/warehouse-positions', warehousePositionsRoutes);
+app.use('/api/production', productionRoutes);
+app.use('/api/subproducts', subProductRoutes);
+app.use('/api/quality-checks', qualityChecksRoutes);
+app.use('/api/export', exportRoutes);
 app.use('/api/assembly', assemblyRoutes);
 app.use('/api/quality', qualityRoutes);
 

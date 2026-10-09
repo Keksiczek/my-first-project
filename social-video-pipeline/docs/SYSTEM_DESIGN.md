@@ -1,5 +1,8 @@
 # Content Factory – návrh systému
 
+> **Nadřazený dokument je `BLUEPRINT.md`** (architektura celého systému). Tady jsou starší, podrobnější
+> technické poznámky k MPT, showtime a lokálním agentům.
+
 Cíl: **vylepšit stávající pipeline na univerzální**: jeden systém, víc typů médií,
 lokálně na PC s 16GB GPU. Nic se nezahazuje, stávající skripty se zapojí jako kroky.
 - **MoneyPrinterTurbo (MPT) je páteř**: hlas, titulky, skládání videa, popisky.

@@ -1,0 +1,5 @@
+output/
+__pycache__/
+*.pyc
+comfy/ltx_map.json
+comfy/ltx_i2v_api.json

@@ -1,0 +1,8 @@
+{
+  "_napoveda": "Id uzlů z TVÉHO workflow exportovaného přes 'Export (API)'. Hodnota = [id uzlu, název vstupu]. Klíče, které workflow nemá, smaž.",
+  "image": ["12", "image"],
+  "prompt": ["6", "text"],
+  "negative": ["7", "text"],
+  "seed": ["25", "noise_seed"],
+  "frames": ["38", "length"]
+}

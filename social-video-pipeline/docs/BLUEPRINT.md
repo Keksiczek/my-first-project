@@ -48,11 +48,17 @@ a o Jarmile v `JARMILA_HERMES.md`.
 | Video | **LTX** image-to-video, klipy na sebe **navazují** (řetězení) | od tebe |
 | Obrázky | generování obrázků („image base“) pro LTX | od tebe |
 | Pořady | Zajímavosti, Ježek, Chaloupky (+ další?) | od tebe |
-| Agenti | **Hermes Agent**, profil **Jarmila**, kanban s chybami | od tebe |
+| Agenti | **Hermes Agent**: Jarmila + **další profily, které pracují na úkolech podle určení**; kanban s chybami | od tebe |
+| LLM | **Qwen 3.6 35B (MoE A3B), ~100 tok/s, kontext ~250K**; modely se střídají přes **llama-swap** | od tebe |
+| Hudba | **vlastní hudba + ACE-Step** | od tebe |
 | Řízení | lokální složky řízené skripty | od tebe |
-| Starší infrastruktura | `ai-home-hub` (FastAPI, Ollama, ChromaDB, fronta úloh, Grafana/Prometheus, Tailscale) | z GitHubu; nevím, jestli běží |
+| ~~Starší infrastruktura~~ | `ai-home-hub` je **starý a nepoužívaný**, s ním se nepočítá | od tebe |
 | Geodata | `experience-app` (OSM/Wikidata/Mapillary, ověřená místa) | z GitHubu |
 | Nové zdroje | `social-video-pipeline` (Místa, Den v historii) | větev `claude/social-video-pipeline` |
+
+> **Korekce 9. 10. večer:** spousta věcí už existuje (profily agentů, střídání modelů přes llama-swap,
+> hudba přes ACE-Step, silný lokální model s dlouhým kontextem). V tabulkách níže jsou proto označené
+> jako hotové. Zítra jde hlavně o to, **co z blueprintu chybí**, ne o stavění znovu.
 
 **Blueprint nic z toho nenahrazuje.** Stávající nástroje se stanou „enginy“ (§ 8) a stávající
 pořady první „bible“ (§ 5).
@@ -69,7 +75,7 @@ pořady první „bible“ (§ 5).
 | 4 | **Platformy AI samy detekují a označují.** TikTok čte C2PA. YouTube má v API pole `containsSyntheticMedia` (realistický pozměněný nebo syntetický obsah). | Deklarovat poctivě a automaticky. Nespoléhat na „neodhalí to“. |
 | 5 | **Algoritmy:** rozhodují první 1–3 s („chose to view“ / swipe-away), dokoukanost, opakované přehrání a sdílení. Shorts a long-form mají oddělená doporučování. | **Laboratoř hooků** a měření na úrovni epizody. Délka a hook se ladí podle platformy. |
 | 6 | **16 GB VRAM je úzké hrdlo.** LTX-2.5 se vejde jen kvantizovaný (GGUF/FP8) s přesouváním do RAM, protože jeho textový enkodér sám má ~15 GB. Hermes chce ≥ 64K kontext. Vše najednou neběží. | **Plánovač zdrojů**: dávky podle modelu, denní a noční směna, zámek GPU. |
-| 7 | **Lokální modely chybují v nástrojích.** Dokumentace Hermese spolehlivé volání nástrojů ověřila jen u velkého modelu (gemma4:31b, ~20 GB). Agenti se pletou v kanbanu. | Agenti mají **úzké rozhraní** (jeden MCP server s pár nástroji), skriptové brány, JSON schémata. Stav nikdy nedrží agent. |
+| 7 | **Agenti a nástroje.** Dokumentace Hermese ověřila spolehlivé volání nástrojů jen u velkého modelu. Tvůj Qwen 3.6 35B s kontextem ~250K je v jiné třídě než malé modely, ale agenti se i tak pletou v kanbanu. | Agenti mají **úzké rozhraní** (jeden MCP server s pár nástroji), JSON schémata. Stav nikdy nedrží agent. |
 | 8 | **Česko:** YouTube ~8 mil. uživatelů, Instagram ~3–3,7 mil., TikTok ~2 mil. dospělých (roste, mladí). TikTok API bez auditu publikuje jen soukromě. | Priorita YouTube (Shorts + **long-form kompilace**), TikTok a Reels jako druhé čtení. Publikaci nechat ve stávajícím nástroji. |
 
 ---
@@ -225,7 +231,7 @@ Pořady nežádají konkrétní nástroj, ale **schopnost**. Registr určí, kte
 | `i2v.chain` (navazující klipy) | **tvoje LTX řetězení** | LTX-2.5 latent continuation / first-last frame / multishot (GGUF) | GPU |
 | `motion.graphics` | Spotlight? | showtime, HyperFrames | CPU |
 | `assemble.short` | **MPT** | ffmpeg, Spotlight | CPU |
-| `music` | MPT bgm / knihovna | ACE-Step 1.5 (< 4 GB, hudba přesně na délku) | GPU (krátce) |
+| `music` | **✔ vlastní hudba + ACE-Step** | – | GPU (krátce) |
 | `avatar.talk` | – | InfiniteTalk (na Wan 2.1) | GPU |
 | `qa.tech` | – | ffprobe, loudness, `showtime qa` | CPU |
 | `qa.visual` | – | Qwen3-VL-8B (snímky), DefectVideoReward | GPU |
@@ -252,9 +258,12 @@ CPU   │ hlas · skladba · grafika · balíčky · QA ── běží pořád, 
 SÍŤ   │ zdroje dat · publikace v plánovaných časech · metriky (1 h / 24 h / 7 d)            │
 ```
 
+> **U tebe už existuje:** llama-swap střídá LLM modely. Zbývá ověřit jen **koordinaci llama-swap ↔ ComfyUI**:
+> uvolní se LLM z VRAM, když jede LTX, a naopak? Body níže jsou cílový stav. Co už llama-swap řeší, se nestaví znovu.
+
 1. **Dávky podle modelu.** Načtení modelu je drahé, proto se úlohy řadí podle modelu, ne podle epizody:
    všechny scénáře, pak všechny obrázky, pak všechna videa. Pořadí epizod uvnitř dávky určuje priorita.
-2. **Zámek GPU a výměna modelu.** Než se načte video model, plánovač uvolní LLM (`ollama stop`).
+2. **Zámek GPU a výměna modelu.** Než se načte video model, uvolní se LLM (u tebe přes llama-swap).
    Pořád jen jeden model na GPU.
 3. **Denní a noční směna.** Přes den má přednost interaktivní LLM (Jarmila, scénáře) a krátké
    obrázkové úlohy. V noci jedou dlouhé LTX řetězy, hudba a vizuální QA. Jarmila v noci odpovídá
@@ -298,6 +307,9 @@ kompilace** pro YouTube. Je to obsah s vyšší hodnotou a zároveň obrana prot
 | **Analytik** | Hermes profil nebo skript + LLM | týdenní zpráva: co fungovalo a proč | cron 1× týdně | střední |
 | **Scenárista** | **volání LLM uvnitř linky**, ne agent | píše jen JSON podle schématu | krok Scénář | nejlepší česky (14–27B Q4) |
 | **Ty** | člověk | schvaluješ plán a finály, měníš bible | Telegram, tabule | – |
+
+**U tebe už existují profily pracující podle určení.** Zítra je jen namapovat na role výše
+(kdo je Showrunner, kdo Analytik…) a nevytvářet nové.
 
 Pravidla:
 - Každý agent má **vlastní profil**. Dokumentace Hermese zakazuje dva procesy na jednom profilu.
@@ -420,7 +432,7 @@ místo „co nejvíc“). Plánovač publikací rozkládá vydání, aby nebyly 
 ## 16. Provoz a dohled
 
 - **Účetní kniha úloh** (SQLite): stav, kroky, časy, chyby, verze modelů a seedy. Z ní se dá vždy říct „proč to vypadá takhle“.
-- **Metriky stroje:** fronta, GPU využití, VRAM, doba kroků. Grafana/Prometheus z `ai-home-hub`, pokud běží.
+- **Metriky stroje:** fronta, GPU využití, VRAM, doba kroků. Stačí jednoduchý přehled; `ai-home-hub` se nepoužívá.
 - **LLM trasování (volitelně):** Langfuse self-host (MIT, ale potřebuje Postgres + ClickHouse). Až když bude potřeba ladit prompty.
 - **Denní zdraví:** Jarmila ráno shrne, co se vyrobilo, co čeká a co selhalo (skriptová brána, žádný spam).
 - **Verzování:** bible, šablony, prompty a schémata v gitu. Změna bible je commit, takže jde zpětně zjistit, proč se pořad změnil.
@@ -474,7 +486,7 @@ Každá fáze má **výstupní kritérium**. Další fáze začíná, až je spl
 | **5 Kvalita a soulad** | kontrolní karta, klasifikace AI, štítky, C2PA, licence | každá publikace má kartu a deklaraci |
 | **6 Učení** | sběr metrik, karty, týdenní zpráva | plán týdne odkazuje na data |
 | **7 Nové pořady a recyklace** | Místa, Den v historii, kvíz; long-form kompilace; varianty pro platformy | nový pořad = nová bible, žádný nový kód |
-| **8 Upgrady** | LTX-2.5 (GGUF), Qwen-Image-Edit-2511, ACE-Step, InfiniteTalk, lokální TTS | podle potřeby, přes registr enginů |
+| **8 Upgrady** | LTX-2.5 (GGUF), Qwen-Image-Edit-2511, InfiniteTalk, lokální TTS | podle potřeby, přes registr enginů |
 
 ---
 
@@ -483,10 +495,10 @@ Každá fáze má **výstupní kritérium**. Další fáze začíná, až je spl
 | # | Otázka | Doporučení | Proč | Alternativa |
 |---|---|---|---|---|
 | D1 | Kde držet stav | **složky + SQLite účetní kniha** | sedí na tvoje skripty, žádná nová infrastruktura | Hatchet / DBOS (Postgres), až když přerosteš |
-| D2 | Kde běží agenti | **Hermes** (už ho máš) | profily, cron, webhooky, MCP, Telegram | Resident Agent z `ai-home-hub` |
+| D2 | Kde běží agenti | **Hermes** (už ho máš, i s profily) | profily, cron, webhooky, MCP, Telegram | – (`ai-home-hub` se nepoužívá) |
 | D3 | Univerzální mezivrstva | **vlastní časová osa (JSON) + export OTIO** | nezávislost na enginu + ruční úpravy ve střižně | parametry MPT jako formát (svazuje s MPT) |
 | D4 | Motion grafika | **Spotlight, pokud ho máš a stačí** | žádná nová závislost | showtime / HyperFrames |
-| D5 | LLM pro Jarmilu | **hybrid: chat střední lokální nebo cloud, cron menší lokální** | 16 GB nestačí na všechno najednou | čistě lokální s přísným rozvrhem |
+| D5 | LLM | **✔ vyřešeno: Qwen 3.6 35B A3B (~100 tok/s, ~250K) přes llama-swap** | zbývá jen koordinace s ComfyUI | – |
 | D6 | Kanban | **nepoužívat k řízení** | chybovost, zbytečná závislost | jednosměrné zrcadlo |
 | D7 | Hlas | **začít edge-tts (máš), testovat Supertonic** | XTTS jen nekomerčně; Chatterbox česky neumí | vlastní klon hlasu, až bude jasná licence |
 | D8 | Publikace | **stávající nástroj** | funguje; TikTok API vyžaduje audit | Postiz |
@@ -565,7 +577,8 @@ Zítra lokálnímu Claudovi dej tenhle dokument a nech ho vyplnit tabulku. Pak s
 7. Kolik VRAM spotřebuje každý krok a co běží současně?
 8. Jaké metriky se dnes sbírají (pokud vůbec)?
 9. Jak se dnes řeší AI štítky a licence při publikaci?
-10. Běží ještě `ai-home-hub` (Grafana, Tailscale, fronta úloh)?
+10. Jak spolupracuje llama-swap s ComfyUI na VRAM (kdo koho uvolní, když jede LTX)?
+11. Které Hermes profily existují a co který dělá? Namapovat na role v § 11.
 
 ### 22.3 Rozhodnout zítra
 
